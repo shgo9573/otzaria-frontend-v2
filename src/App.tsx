@@ -15,22 +15,16 @@ function Shell() {
 
   // typing /admin in the address bar (back/forward included) opens the hidden admin screen
   useEffect(() => {
-    const sync = () => {
-      try {
-        const onAdmin = (window.location.pathname || '').replace(/\/$/, '').endsWith('/admin') || (window.location.hash || '').includes('admin');
-        if (onAdmin) setScreen('admin');
-      } catch { /* ignore */ }
-    };
-    const onPop = () => {
+    const onAdminPath = () => {
       try {
         const onAdmin = (window.location.pathname || '').replace(/\/$/, '').endsWith('/admin');
         if (onAdmin) setScreen('admin');
         else if ((window as unknown as { __lastScreen?: string }).__lastScreen === 'admin') setScreen('library');
       } catch { /* ignore */ }
     };
-    sync();
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
+    onAdminPath();
+    window.addEventListener('popstate', onAdminPath);
+    return () => window.removeEventListener('popstate', onAdminPath);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

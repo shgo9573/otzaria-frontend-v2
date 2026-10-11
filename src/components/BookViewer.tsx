@@ -84,10 +84,16 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 900);
   const [sidebarTab, setSidebarTab] = useState<'toc' | 'search'>('toc');
   const [searchSeed, setSearchSeed] = useState(0);
-  // commentaries are open by default (unless the user explicitly chose "hidden by default")
-  const [commentOpen, setCommentOpen] = useState(() => settings.commentaryViewMode !== 'inline');
-  const [commentWidth, setCommentWidth] = useState(() => Math.round(Math.min(520, window.innerWidth * 0.38)));
+  const bookLayout = settings.perBookSettingsEnabled ? settings.perBookLayoutSettings?.[String(tab.bookId)] : undefined;
+  const [commentOpen, setCommentOpen] = useState(() => bookLayout?.commentaryOpen ?? settings.commentaryOpenByDefault ?? settings.commentaryViewMode !== 'inline');
+  const [commentWidth, setCommentWidth] = useState(() => bookLayout?.commentaryPanelWidth ?? settings.commentaryPanelWidth ?? 19);
+  const [sidebarWidth, setSidebarWidth] = useState(() => bookLayout?.navigationPanelWidth ?? settings.navigationPanelWidth ?? 16);
+  const commentWidthRef = useRef(commentWidth);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  commentWidthRef.current = commentWidth;
+  sidebarWidthRef.current = sidebarWidth;
   const [commentLine, setCommentLine] = useState(tab.line);
+  const [endReached, setEndReached] = useState(false);
 
   const scRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -100,6 +106,26 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
   linesRef.current = lines;
   const totalRef = useRef(total);
   totalRef.current = total;
+  const reachedEndRef = useRef(false);
+  const topReachedRef = useRef(false);
+
+  const saveLayoutPreference = useCallback((patch: { commentaryPanelWidth?: number; navigationPanelWidth?: number; commentaryOpen?: boolean }) => {
+    if (settings.perBookSettingsEnabled) {
+      const all = settings.perBookLayoutSettings || {};
+      const key = String(tab.bookId);
+      updateSettings({ perBookLayoutSettings: { ...all, [key]: { ...(all[key] || {}), ...patch } } });
+    } else {
+      const { commentaryOpen: open, ...sizes } = patch;
+      updateSettings({ ...sizes, ...(open !== undefined ? { commentaryOpenByDefault: open } : {}) });
+    }
+  }, [settings.perBookSettingsEnabled, settings.perBookLayoutSettings, tab.bookId, updateSettings]);
+
+  useEffect(() => {
+    const own = settings.perBookSettingsEnabled ? settings.perBookLayoutSettings?.[String(tab.bookId)] : undefined;
+    setCommentWidth(own?.commentaryPanelWidth ?? settings.commentaryPanelWidth ?? 19);
+    setSidebarWidth(own?.navigationPanelWidth ?? settings.navigationPanelWidth ?? 16);
+    setCommentOpen(own?.commentaryOpen ?? settings.commentaryOpenByDefault ?? settings.commentaryViewMode !== 'inline');
+  }, [tab.bookId, settings.perBookSettingsEnabled, settings.perBookLayoutSettings, settings.commentaryPanelWidth, settings.navigationPanelWidth, settings.commentaryOpenByDefault, settings.commentaryViewMode]);
 
   const [toc, setToc] = useState<TocEntry[] | null>(null);
   const [tocError, setTocError] = useState('');
@@ -148,15 +174,25 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
     setError('');
     busyDown.current = false;
     busyUp.current = false;
+    reachedEndRef.current = false;
+    topReachedRef.current = false;
+    setEndReached(false);
     const start = Math.max(1, target - 60);
     api
       .content(tab.bookId, start, target + CHUNK)
       .then((r) => {
         if (cancelled) return;
         setTotal(r.totalLines);
-        pending.current = { type: 'jump', line: target };
+        if (r.totalLines) totalRef.current = r.totalLines;
+        const safeTarget = r.totalLines > 0 ? Math.min(target, r.totalLines) : target;
+        pending.current = { type: 'jump', line: safeTarget };
         setLines(r.lines);
-        if (tab.jump) setSelected(tab.jump.line);
+        if (tab.jump) setSelected(safeTarget);
+        const last = r.lines[r.lines.length - 1]?.lineIndex ?? 0;
+        if ((r.totalLines > 0 && last >= r.totalLines) || (!r.totalLines && r.lines.length < target + CHUNK - start + 1)) {
+          reachedEndRef.current = true;
+          setEndReached(true);
+        }
       })
       .catch((e) => !cancelled && setError(e.message))
       .finally(() => !cancelled && setLoading(false));
@@ -183,36 +219,82 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
     }
   }, [lines]);
 
+  const downErrors = useRef(0);
   const loadDown = useCallback(async () => {
-    if (busyDown.current) return;
+    if (busyDown.current || reachedEndRef.current) return;
     const cur = linesRef.current;
     const last = cur[cur.length - 1];
-    if (!last || (totalRef.current && last.lineIndex >= totalRef.current)) return;
+    if (!last) return;
+    if (totalRef.current > 0 && last.lineIndex >= totalRef.current) {
+      reachedEndRef.current = true;
+      setEndReached(true);
+      return;
+    }
     busyDown.current = true;
     try {
       const from = last.lineIndex + 1;
-      const to = last.lineIndex + CHUNK;
-      const r = await api.content(tab.bookId, from, to);
-      if (r.totalLines) setTotal(r.totalLines);
-      if (r.lines.length) {
-        setLines((p) => {
-          const lastIdx = p[p.length - 1]?.lineIndex ?? 0;
-          return [...p, ...r.lines.filter((l) => l.lineIndex > lastIdx)];
-        });
-        const lastGot = r.lines[r.lines.length - 1].lineIndex;
-        if (r.lines.length < to - from + 1 && lastGot < (r.totalLines || Infinity)) setTotal(lastGot);
-      } else {
+      // never request beyond the known total – the server may ignore the range
+      // and return the same lines again, which used to cause an endless loop
+      const effectiveTo = totalRef.current > 0 ? Math.min(last.lineIndex + CHUNK, totalRef.current) : last.lineIndex + CHUNK;
+      if (totalRef.current > 0 && from > totalRef.current) {
+        reachedEndRef.current = true;
+        setEndReached(true);
+        return;
+      }
+      const r = await api.content(tab.bookId, from, effectiveTo);
+      if (r.totalLines) {
+        setTotal(r.totalLines);
+        totalRef.current = r.totalLines;
+      }
+      const incoming = r.lines || [];
+      if (incoming.length === 0) {
+        reachedEndRef.current = true;
+        setEndReached(true);
         setTotal(last.lineIndex);
+        totalRef.current = last.lineIndex;
+        return;
+      }
+      // progress check: if the server returned no lines beyond what we have,
+      // it is ignoring the range – stop instead of polling forever
+      const fresh = incoming.filter((l) => l.lineIndex > last.lineIndex);
+      if (fresh.length === 0) {
+        reachedEndRef.current = true;
+        setEndReached(true);
+        setTotal(last.lineIndex);
+        totalRef.current = last.lineIndex;
+        return;
+      }
+      downErrors.current = 0;
+      setLines((p) => {
+        const lastIdx = p[p.length - 1]?.lineIndex ?? 0;
+        return [...p, ...fresh.filter((l) => l.lineIndex > lastIdx)];
+      });
+      const lastGot = fresh[fresh.length - 1].lineIndex;
+      const knownTotal = r.totalLines || totalRef.current;
+      const isEnd = knownTotal > 0 ? lastGot >= knownTotal : incoming.length < effectiveTo - from + 1;
+      if (isEnd) {
+        reachedEndRef.current = true;
+        setEndReached(true);
+        if (!knownTotal) {
+          setTotal(lastGot);
+          totalRef.current = lastGot;
+        }
       }
     } catch {
-      /* ignore */
+      // transient network error: allow a retry, but stop after repeated failures
+      // so a persistently failing range can't spin forever
+      downErrors.current += 1;
+      if (downErrors.current >= 3) {
+        reachedEndRef.current = true;
+        setEndReached(true);
+      }
     } finally {
       busyDown.current = false;
     }
   }, [tab.bookId]);
 
   const loadUp = useCallback(async () => {
-    if (busyUp.current) return;
+    if (busyUp.current || topReachedRef.current) return;
     const cur = linesRef.current;
     const first = cur[0];
     if (!first || first.lineIndex <= 1) return;
@@ -221,15 +303,22 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
       const start = Math.max(1, first.lineIndex - CHUNK);
       const r = await api.content(tab.bookId, start, first.lineIndex - 1);
       const sc = scRef.current;
-      if (sc && r.lines.length) {
+      const incoming = r.lines || [];
+      const fresh = incoming.filter((l) => l.lineIndex < first.lineIndex);
+      if (fresh.length === 0) {
+        // server ignored the range – stop polling upward
+        topReachedRef.current = true;
+        return;
+      }
+      if (sc && fresh.length) {
         pending.current = { type: 'prepend', h: sc.scrollHeight, t: sc.scrollTop };
         setLines((p) => {
           const firstIdx = p[0]?.lineIndex ?? Infinity;
-          return [...r.lines.filter((l) => l.lineIndex < firstIdx), ...p];
+          return [...fresh.filter((l) => l.lineIndex < firstIdx), ...p];
         });
       }
     } catch {
-      /* ignore */
+      /* ignore – a failed upward fetch simply retries on next intersection */
     } finally {
       busyUp.current = false;
     }
@@ -237,7 +326,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
 
   useEffect(() => {
     const sc = scRef.current;
-    if (!ready || !sc) return;
+    if (!ready || !sc || endReached) return;
     const io = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
@@ -251,14 +340,14 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
     if (topSentinel.current) io.observe(topSentinel.current);
     if (botSentinel.current) io.observe(botSentinel.current);
     return () => io.disconnect();
-  }, [ready, lines, loadDown, loadUp]);
+  }, [ready, lines, loadDown, loadUp, endReached]);
 
   // if the viewport isn't filled yet (short lines), keep loading
   useEffect(() => {
     const sc = scRef.current;
-    if (!ready || !sc) return;
+    if (!ready || !sc || endReached) return;
     if (sc.scrollHeight <= sc.clientHeight + 200) loadDown();
-  }, [ready, lines, loadDown]);
+  }, [ready, lines, loadDown, endReached]);
 
   // ---- scroll tracking ----
   const rafRef = useRef(0);
@@ -449,15 +538,46 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
     const move = (ev: MouseEvent) => {
       if (!dragging.current || !bodyRef.current) return;
       const r = bodyRef.current.getBoundingClientRect();
-      setCommentWidth(Math.max(240, Math.min(r.width * 0.75, ev.clientX - r.left)));
+      const min = Math.max(16, 220 / r.width * 100);
+      const textMin = Math.max(24, 320 / r.width * 100);
+      const max = Math.min(60, 100 - (sidebarOpen ? sidebarWidthRef.current : 0) - textMin);
+      setCommentWidth(Math.max(min, Math.min(max, (ev.clientX - r.left) / r.width * 100)));
     };
     const up = () => {
       dragging.current = false;
+      saveLayoutPreference({ commentaryPanelWidth: commentWidthRef.current });
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
+  };
+
+  const startSidebarDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    const move = (ev: MouseEvent) => {
+      if (!dragging.current || !bodyRef.current) return;
+      const r = bodyRef.current.getBoundingClientRect();
+      const minText = Math.max(24, 320 / r.width * 100);
+      const comment = commentOpen ? commentWidthRef.current : 0;
+      const max = Math.min(32, 100 - comment - minText);
+      setSidebarWidth(Math.max(12, Math.min(max, (r.right - ev.clientX) / r.width * 100)));
+    };
+    const up = () => {
+      dragging.current = false;
+      saveLayoutPreference({ navigationPanelWidth: sidebarWidthRef.current });
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  const toggleCommentary = () => {
+    const next = !commentOpen;
+    setCommentOpen(next);
+    saveLayoutPreference({ commentaryOpen: next });
   };
 
   const inline = settings.continuousReadingMode;
@@ -494,7 +614,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
   );
 
   const atStart = lines[0]?.lineIndex <= 1;
-  const atEnd = lines.length > 0 && total > 0 && lines[lines.length - 1].lineIndex >= total;
+  const atEnd = endReached || (lines.length > 0 && total > 0 && lines[lines.length - 1].lineIndex >= total);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
@@ -567,7 +687,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
         <IconBtn title="הגדל גופן" onClick={() => updateSettings({ fontSize: Math.min(64, settings.fontSize + 2) })}>
           <Plus size={18} />
         </IconBtn>
-        <IconBtn title={commentOpen ? 'הסתר מפרשים' : 'הצג מפרשים'} active={commentOpen} onClick={() => setCommentOpen((o) => !o)}>
+        <IconBtn title={commentOpen ? 'הסתר מפרשים' : 'הצג מפרשים'} active={commentOpen} onClick={toggleCommentary}>
           <MessageSquareText size={20} />
         </IconBtn>
       </div>
@@ -575,7 +695,10 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
       <div ref={bodyRef} className="relative flex min-h-0 flex-1">
         {sidebarOpen && (
           <>
-            <div className="absolute inset-y-0 right-0 z-20 w-[min(320px,88vw)] shadow-xl md:static md:z-auto md:w-72 md:shrink-0 md:shadow-none">
+            <div
+              className="absolute inset-y-0 right-0 z-20 w-[min(320px,88vw)] shadow-xl md:static md:z-auto md:w-[var(--sw)] md:shrink-0 md:shadow-none"
+              style={{ ['--sw' as string]: `${sidebarWidth}%` }}
+            >
               <BookSidebar
                 bookId={tab.bookId}
                 bookTitle={title}
@@ -589,7 +712,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
                 tocError={tocError}
               />
             </div>
-            <div className="hidden w-px shrink-0 bg-outline-variant md:block" />
+            <div onMouseDown={startSidebarDrag} className="hidden w-1.5 shrink-0 cursor-col-resize bg-outline-variant/60 transition-colors hover:bg-primary md:block" title="גרור לשינוי רוחב הניווט" />
           </>
         )}
 
@@ -597,7 +720,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
           <>
             <div
               className="absolute inset-x-0 bottom-0 z-10 h-[50%] border-t border-outline-variant shadow-[0_-4px_16px_rgba(0,0,0,0.15)] md:static md:z-auto md:h-auto md:w-[var(--cw)] md:shrink-0 md:border-t-0 md:shadow-none"
-              style={{ ['--cw' as string]: commentWidth + 'px', order: 3 }}
+              style={{ ['--cw' as string]: `${commentWidth}%`, order: 3 }}
             >
               <CommentaryPanel bookId={tab.bookId} bookTitle={title} line={commentLine} heRef={lines.find((l) => l.lineIndex === commentLine)?.heRef} opts={opts} />
             </div>
@@ -628,7 +751,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
                   opacity: ready ? 1 : 0,
                 }}
               >
-                <div ref={topSentinel} className="h-px" />
+                {!atStart && <div ref={topSentinel} className="h-px" />}
                 {atStart && <div className="h-2" />}
                 {lines.map((l, i) => (
                   <LineView
@@ -643,8 +766,8 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
                     onSelect={onSelect}
                   />
                 ))}
-                <div ref={botSentinel} className="h-px" />
-                {atEnd ? (
+                {!atEnd && !endReached && <div ref={botSentinel} className="h-px" />}
+                {atEnd || endReached ? (
                   <div className="py-10 text-center text-sm text-on-variant" style={{ fontFamily: 'Heebo' }}>
                     • סוף הספר •
                   </div>

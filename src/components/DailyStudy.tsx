@@ -32,6 +32,7 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSt
 export function useDailyTracks(date: Date) {
   const { settings, library } = useApp();
   const schedule = String(settings.halachaYomitScheduleType || 'dirshu_mishna_berura');
+  const chofetzSchedule = String(settings.chofetzChaimScheduleType || 'world_biannual');
   const [links, setLinks] = useState<Record<string, ResolvedTarget | null>>({});
 
   const values = useMemo<Record<string, string>>(() => {
@@ -42,9 +43,9 @@ export function useDailyTracks(date: Date) {
       rambam: rambamFor(date),
       halachaYomit: halachaYomitFor(date, schedule),
       parasha: parashaFor(date) ?? '—',
-      chofetzChaim: chofetzChaimFor(date),
+      chofetzChaim: chofetzChaimFor(date, chofetzSchedule),
     };
-  }, [date, schedule]);
+  }, [date, schedule, chofetzSchedule]);
 
   const stamp = dayKey(date);
   useEffect(() => {
@@ -53,7 +54,7 @@ export function useDailyTracks(date: Date) {
     setLinks({});
     (async () => {
       const entries = await Promise.all(TRACKS.map(async (track) => {
-        const target = targetForTrack(track.key, date, schedule);
+        const target = targetForTrack(track.key, date, schedule, chofetzSchedule);
         return [track.key, target ? await resolveTarget(target, library.books) : null] as const;
       }));
       const out = Object.fromEntries(entries) as Record<string, ResolvedTarget | null>;
@@ -63,7 +64,7 @@ export function useDailyTracks(date: Date) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [library, stamp, schedule]);
+  }, [library, stamp, schedule, chofetzSchedule]);
 
   return { values, links };
 }
@@ -224,10 +225,22 @@ export default function DailyStudy() {
             value={String(settings.halachaYomitScheduleType || 'dirshu_mishna_berura')}
             onChange={(v) => updateSettings({ halachaYomitScheduleType: v as never })}
             options={[
-              { value: 'dirshu_mishna_berura', label: 'דרשו – משנה ברורה' },
+              { value: 'dirshu_mishna_berura', label: 'שולחן ערוך (דרשו)' },
               { value: 'shulchan_aruch', label: 'ערוך השולחן היומי' },
               { value: 'kitzur_shulchan_aruch', label: 'קיצור שולחן ערוך' },
               { value: 'rambam_halacha', label: 'רמב"ם – הלכה יומית' },
+            ]}
+          />
+        </label>
+        <label className="text-xs text-on-variant">
+          מסלול חפץ חיים
+          <Select
+            className="mt-1 block"
+            value={String(settings.chofetzChaimScheduleType || 'world_biannual')}
+            onChange={(v) => updateSettings({ chofetzChaimScheduleType: v as never })}
+            options={[
+              { value: 'world_biannual', label: 'נוצרי לשון (פעמיים בשנה)' },
+              { value: 'world_three_times', label: 'מחזור 3 פעמים בשנה' },
             ]}
           />
         </label>

@@ -151,6 +151,16 @@ export interface ReaderSettings {
   uiBrightness?: number;
   /** show the source reference (heRef) above each line in the reader – off by default */
   showLineRefs?: boolean;
+  /** default reader panel widths are percentages of the available reader width */
+  commentaryPanelWidth?: number;
+  navigationPanelWidth?: number;
+  commentaryOpenByDefault?: boolean;
+  /** optional per-book overrides, used only when perBookSettingsEnabled is on */
+  perBookLayoutSettings?: Record<string, {
+    commentaryPanelWidth?: number;
+    navigationPanelWidth?: number;
+    commentaryOpen?: boolean;
+  }>;
   calendarLocation?: string;
   zmanimMethod?: 'gra' | 'mga' | 'baal_hatanya';
   dailyStudyTracks?: Record<string, boolean>;
@@ -191,6 +201,10 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   dailyNotificationsEnabled: false,
   dailyNotificationTime: '08:00',
   interfaceLanguage: 'he',
+  commentaryPanelWidth: 19,
+  navigationPanelWidth: 16,
+  commentaryOpenByDefault: true,
+  showLineRefs: false,
 };
 
 export interface Highlight {
@@ -246,4 +260,4 @@ export interface SearchTab {
 }
 
 export type Tab = BookTab | SearchTab;
-export type Screen = 'library' | 'find' | 'reading' | 'more' | 'settings';
+export type Screen = 'library' | 'find' | 'reading' | 'more' | 'settings' | 'admin';

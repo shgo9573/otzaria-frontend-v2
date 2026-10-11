@@ -239,6 +239,29 @@ function ColorPicker() {
   );
 }
 
+function ReaderLayoutSettings() {
+  const { settings, updateSettings } = useApp();
+  return (
+    <Section title="פריסה בקורא">
+      <Row label="המפרשים פתוחים כברירת מחדל">
+        <Switch checked={settings.commentaryOpenByDefault ?? true} onChange={(v) => updateSettings({ commentaryOpenByDefault: v })} />
+      </Row>
+      <Row label="רוחב חלונית המפרשים">
+        <Slider value={settings.commentaryPanelWidth ?? 19} min={12} max={40} onChange={(v) => updateSettings({ commentaryPanelWidth: v })} suffix="%" />
+      </Row>
+      <Row label="רוחב חלונית הניווט">
+        <Slider value={settings.navigationPanelWidth ?? 16} min={12} max={25} onChange={(v) => updateSettings({ navigationPanelWidth: v })} suffix="%" />
+      </Row>
+      <Row label="הגדרות פר-ספר" hint="בעת גרירת חלוניות, שמור רוחב/פתיחה נפרדים לספר הנוכחי">
+        <Switch checked={settings.perBookSettingsEnabled} onChange={(v) => updateSettings({ perBookSettingsEnabled: v })} />
+      </Row>
+      <div className="px-5 pb-4 pt-1 text-xs text-on-variant">
+        אפשר לגרור את הגבולות שבין חלוניות המפרשים, הניווט והספר. כאשר הגדרות פר-ספר פועלות, השינוי נשמר בנפרד לכל ספר; אחרת הוא מעדכן את ברירת המחדל.
+      </div>
+    </Section>
+  );
+}
+
 export default function SettingsScreen() {
   const { settings: s, updateSettings } = useApp();
   const set = <K extends keyof ReaderSettings>(k: K, v: ReaderSettings[K]) => updateSettings({ [k]: v } as Partial<ReaderSettings>);
@@ -290,6 +313,8 @@ export default function SettingsScreen() {
             <Switch checked={s.showBookPreview} onChange={(v) => set('showBookPreview', v)} />
           </Row>
         </Section>
+
+        <ReaderLayoutSettings />
 
         <Section title="הגדרות קורא">
           <Row label="גופן ראשי">

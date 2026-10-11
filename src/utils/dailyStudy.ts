@@ -5,6 +5,12 @@ import { chofetzChaim } from '@hebcal/learning/chofetzChaimBase';
 import { dirshuDafHalacha } from '@hebcal/learning/dirshuDafHalachaBase';
 import { arukhHaShulchanYomi } from '@hebcal/learning/arukhHaShulchanYomiBase';
 import { kitzurShulchanAruch } from '@hebcal/learning/kitzurShulchanAruchBase';
+import { hebrewNumber } from './talmud';
+
+/** Convert every Arabic number in a string to plain Hebrew letters (7 → ז, 443 → תמג). */
+export function hebNums(text: string): string {
+  return text.replace(/\d+/g, (m) => hebrewNumber(Number(m)) || m);
+}
 
 export interface DailyItem {
   key: string;
@@ -23,7 +29,7 @@ export function hebrewDate(d: Date): string {
 export function dafYomiFor(d: Date): { name: string; blatt: number; label: string } | null {
   try {
     const daf = new DafYomi(d);
-    return { name: daf.getName(), blatt: Number(daf.getBlatt()), label: daf.render('he') };
+    return { name: daf.getName(), blatt: Number(daf.getBlatt()), label: hebNums(daf.render('he')) };
   } catch {
     return null;
   }
@@ -41,7 +47,10 @@ export function mishnaYomiReadingsFor(d: Date): { k: string; v: string }[] {
 export function mishnaYomiFor(d: Date): string | null {
   const pair = mishnaYomiReadingsFor(d);
   if (pair.length) {
-    const fmt = (m: { k: string; v: string }) => `${Locale.gettext(m.k, 'he')} ${m.v}`;
+    const fmt = (m: { k: string; v: string }) => `${Locale.gettext(m.k, 'he')} ${hebNums(m.v)}`;
+    if (pair.length > 1 && pair[0].k === pair[pair.length - 1].k) {
+      return `${Locale.gettext(pair[0].k, 'he')} ${hebNums(pair[0].v)}–${hebNums(pair[pair.length - 1].v.split(':').pop() || pair[pair.length - 1].v)}`;
+    }
     return pair.length > 1 ? `${fmt(pair[0])} – ${fmt(pair[pair.length - 1])}` : fmt(pair[0]);
   }
   return null;
@@ -64,27 +73,24 @@ export function rambamReadingFor(d: Date): { name: string; perek: number | strin
 
 export function rambamFor(d: Date): string {
   const r = rambamReadingFor(d);
-  return r ? `${Locale.gettext(r.name, 'he')}, פרק ${r.perek}` : '—';
+  return r ? `${Locale.gettext(r.name, 'he')}, פרק ${hebNums(String(r.perek))}` : '—';
 }
 
 export function chofetzChaimReadingFor(d: Date) {
   try { return chofetzChaim(new HDate(d)); } catch { return null; }
 }
 
-const HEB = (n: number) => {
-  const ones = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
-  const tens = ['', 'י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ'];
-  if (n === 15) return 'ט״ו';
-  if (n === 16) return 'ט״ז';
-  const s = (n >= 100 ? 'ק' : '') + tens[Math.floor((n % 100) / 10)] + ones[n % 10];
-  return s.length > 1 ? `${s.slice(0, -1)}״${s.slice(-1)}` : `${s}׳`;
-};
+const HEB = (n: number) => hebrewNumber(n);
 
 /**
  * Today's portion of the worldwide Sefer Chofetz Chaim daily calendar (completed three times a year:
  * from א׳ תשרי, א׳ שבט and א׳ סיון). For example כלל א׳ סעיף א׳ is learned on כ״ו תשרי / כ״ה שבט / כ״ה סיון.
  */
-export function chofetzChaimFor(d: Date): string {
+export function chofetzChaimFor(d: Date, schedule: string = 'world_three_times'): string {
+  if (schedule === 'world_biannual' || schedule === 'daily_order') {
+    const r = chofetzChaimBiannual(d);
+    return r.label;
+  }
   const r = chofetzChaimReadingFor(d);
   if (!r) return '—';
   const sections: Record<string, string> = {
@@ -108,23 +114,102 @@ export function chofetzChaimFor(d: Date): string {
   return `${name} ${HEB(b)}${Number.isFinite(last) ? `–${HEB(last)}` : ''}`;
 }
 
+export interface ChofetzReadingCustom {
+  k: string;
+  b: string | number;
+  e: string | number;
+  label: string;
+}
+
+/** 2-halachot a day biannual schedule (נוצרי לשון / מפעל החפץ חיים) */
+export function chofetzChaimBiannual(d: Date): ChofetzReadingCustom {
+  const hd = new HDate(d);
+  const roshHashana = new HDate(1, 'Tishrei', hd.getFullYear()).abs();
+  const dayOfYear = Math.max(0, hd.abs() - roshHashana);
+  const cycleDay = (dayOfYear % 180) + 1;
+
+  // Schedule mapping:
+  if (cycleDay <= 5) return { k: 'Hakdamah', b: 1, e: 4, label: 'הקדמה' };
+  if (cycleDay <= 10) {
+    const n = (cycleDay - 5) * 2;
+    return { k: 'Psichah', b: n - 1, e: n, label: `פתיחה לאוין ${HEB(n - 1)}–${HEB(n)}` };
+  }
+  if (cycleDay <= 15) {
+    const n = (cycleDay - 10) * 2;
+    return { k: 'Asin', b: n - 1, e: n, label: `פתיחה עשין ${HEB(n - 1)}–${HEB(n)}` };
+  }
+  if (cycleDay === 16) return { k: 'Arurin', b: 1, e: 4, label: 'פתיחה ארורין' };
+
+  // Hilchos Lashon Hara (rules 1..10)
+  const lhSchedule: [number, number, number][] = [
+    // [rule, startPara, endPara]
+    [1, 1, 2], [1, 3, 4], [1, 5, 6], [1, 7, 8], [1, 9, 9], // days 17..21 (כלל א)
+    [2, 1, 2], [2, 3, 4], [2, 5, 6], [2, 7, 8], [2, 9, 10], [2, 11, 12], [2, 13, 13], // days 22..28 (כלל ב)
+    [3, 1, 2], [3, 3, 4], [3, 5, 6], [3, 7, 8], // days 29..32 (כלל ג)
+    [4, 1, 2], [4, 3, 4], [4, 5, 6], [4, 7, 8], [4, 9, 10], [4, 11, 12], // days 33..38 (כלל ד)
+    [5, 1, 2], [5, 3, 4], [5, 5, 6], [5, 7, 8], // days 39..42 (כלל ה)
+    [6, 1, 2], [6, 3, 4], [6, 5, 6], [6, 7, 8], [6, 9, 10], [6, 11, 12], // days 43..48 (כלל ו)
+    [7, 1, 2], [7, 3, 4], [7, 5, 6], [7, 7, 8], [7, 9, 10], [7, 11, 12], [7, 13, 14], // days 49..55 (כלל ז)
+    [8, 1, 2], [8, 3, 4], [8, 5, 6], [8, 7, 8], [8, 9, 10], [8, 11, 12], [8, 13, 14], // days 56..62 (כלל ח)
+    [9, 1, 2], [9, 3, 4], [9, 5, 6], // days 63..65 (כלל ט)
+    [10, 1, 2], [10, 3, 4], [10, 5, 6], [10, 7, 8], [10, 9, 10], [10, 11, 12], [10, 13, 14], [10, 15, 16], [10, 17, 17], // days 66..74 (כלל י)
+  ];
+
+  const lhIndex = cycleDay - 17;
+  if (lhIndex < lhSchedule.length) {
+    const [rule, startP, endP] = lhSchedule[lhIndex];
+    return {
+      k: 'HilchosLH',
+      b: `${rule}.${startP}`,
+      e: `${rule}.${endP}`,
+      label: startP === endP ? `הלכות לשון הרע, כלל ${HEB(rule)} סעיף ${HEB(startP)}` : `הלכות לשון הרע, כלל ${HEB(rule)} סעיף ${HEB(startP)}–${HEB(endP)}`,
+    };
+  }
+
+  // Hilchos Rechilut (rules 1..9)
+  const rechSchedule: [number, number, number][] = [
+    [1, 1, 2], [1, 3, 4], [1, 5, 6], [1, 7, 8], [1, 9, 10], [1, 11, 11],
+    [2, 1, 2], [2, 3, 4],
+    [3, 1, 2], [3, 3, 4],
+    [4, 1, 2], [4, 3, 3],
+    [5, 1, 2], [5, 3, 4], [5, 5, 6], [5, 7, 7],
+    [6, 1, 2], [6, 3, 4], [6, 5, 6], [6, 7, 8], [6, 9, 10], [6, 11, 11],
+    [7, 1, 2], [7, 3, 4], [7, 5, 5],
+    [8, 1, 2], [8, 3, 4], [8, 5, 5],
+    [9, 1, 2], [9, 3, 4], [9, 5, 6], [9, 7, 8], [9, 9, 10], [9, 11, 12], [9, 13, 14], [9, 15, 15],
+  ];
+
+  const rechIndex = cycleDay - 17 - lhSchedule.length;
+  if (rechIndex < rechSchedule.length) {
+    const [rule, startP, endP] = rechSchedule[rechIndex];
+    return {
+      k: 'HilchosRechilus',
+      b: `${rule}.${startP}`,
+      e: `${rule}.${endP}`,
+      label: startP === endP ? `הלכות רכילות, כלל ${HEB(rule)} סעיף ${HEB(startP)}` : `הלכות רכילות, כלל ${HEB(rule)} סעיף ${HEB(startP)}–${HEB(endP)}`,
+    };
+  }
+
+  return { k: 'Tziyurim', b: 1, e: 2, label: 'ציורים והערות' };
+}
+
 export function halachaYomitFor(d: Date, schedule: string = 'dirshu_mishna_berura'): string {
   try {
     if (schedule === 'kitzur_shulchan_aruch') {
       const r = kitzurShulchanAruch(d);
-      return r ? `קיצור שולחן ערוך ${r.b}${r.e ? `–${r.e}` : ''}` : 'אין לימוד מתוזמן היום';
+      return r ? `קיצור שולחן ערוך ${hebNums(String(r.b))}${r.e ? `–${hebNums(String(r.e))}` : ''}` : 'אין לימוד מתוזמן היום';
     }
     if (schedule === 'shulchan_aruch') {
       const r = arukhHaShulchanYomi(d);
-      return `${Locale.gettext(r.k, 'he')} ${r.v}`;
+      return `${Locale.gettext(r.k, 'he')} ${hebNums(r.v)}`;
     }
     if (schedule === 'rambam_halacha') {
       const r = dailyRambam1(d);
-      return `${Locale.gettext(r.name, 'he')}, פרק ${r.perek}`;
+      return `${Locale.gettext(r.name, 'he')}, פרק ${hebNums(String(r.perek))}`;
     }
     const r = dirshuDafHalacha(d);
     if (!r) return 'אין מראה מקום זמין לתאריך זה';
-    return `${r.review ? 'חזרה · ' : ''}משנה ברורה ${r.b}${r.e ? `–${r.e}` : ''}`;
+    return `${r.review ? 'חזרה · ' : ''}שולחן ערוך סימן ${hebNums(String(r.b))}${r.e ? `–${hebNums(String(r.e))}` : ''}`;
   } catch {
     return 'אין מראה מקום זמין לתאריך זה';
   }

@@ -140,4 +140,26 @@ export const api = {
       '/user/restore',
       { method: 'POST', json: { backupData, mode } },
     ),
+
+  adminVerify: async (code: string): Promise<{ ok: boolean; key: string; raw: unknown }> => {
+    const raw = await request<any>('/admin/verify', { method: 'POST', json: { code, adminCode: code, key: code } });
+    const ok = !!(raw && (raw.success === true || raw.ok === true || raw.valid === true || raw.verified === true || raw.authenticated === true));
+    const key = String(raw?.adminKey || raw?.key || raw?.token || code);
+    if (!ok && raw && typeof raw === 'object' && 'error' in raw && raw.error) throw new Error(String((raw as any).message || (raw as any).error));
+    return { ok: ok || !raw?.error, key, raw };
+  },
+  adminFetch: async <T,>(path: string, adminKey: string): Promise<T> => {
+    const res = await fetch(API_BASE + path, { headers: { Accept: 'application/json', 'x-admin-key': adminKey } });
+    if (!res.ok) {
+      let msg = `שגיאת שרת (${res.status})`;
+      try {
+        const j = await res.json();
+        msg = j.message || j.error || msg;
+      } catch { /* ignore */ }
+      const err = new Error(msg) as Error & { status?: number };
+      err.status = res.status;
+      throw err;
+    }
+    return (await res.json()) as T;
+  },
 };

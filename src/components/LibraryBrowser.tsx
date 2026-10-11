@@ -8,7 +8,7 @@ import { t } from '../i18n';
 import type { BookItem } from '../types';
 
 export default function LibraryBrowser() {
-  const { library, libraryLoading, libraryError, reloadLibrary, settings, updateSettings, openBook, history, screen, removeHistoryItem, clearHistory } = useApp();
+  const { library, libraryLoading, libraryError, reloadLibrary, settings, updateSettings, openBook, history, screen, removeHistoryItem, clearHistory, setScreen } = useApp();
   const [path, setPath] = useState('');
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -101,7 +101,16 @@ export default function LibraryBrowser() {
           <input
             ref={inputRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              // hidden admin entry: typing /admin jumps to the admin screen
+              if (v.trim() === '/admin') {
+                setQuery('');
+                setScreen('admin');
+                return;
+              }
+              setQuery(v);
+            }}
             placeholder={t('איתור ספר בספרייה', lang)}
             className="h-11 w-full rounded-full border border-outline-variant bg-surface-2 pr-11 pl-10 text-[15px] outline-none transition focus:border-primary focus:bg-surface"
           />

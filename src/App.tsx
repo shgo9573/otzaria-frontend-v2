@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { AppProvider, useApp } from './store';
 import NavRail from './components/NavRail';
 import LibraryBrowser from './components/LibraryBrowser';
@@ -5,18 +6,44 @@ import ReadingScreen from './components/ReadingScreen';
 import MoreScreen from './components/MoreScreen';
 import SettingsScreen from './components/SettingsScreen';
 import FindScreen from './components/FindScreen';
+import AdminStats from './components/AdminStats';
 import { AboutDialog } from './components/Dialogs';
 import DailyNotifications from './components/DailyNotifications';
 
 function Shell() {
-  const { screen, dialog, toastMsg } = useApp();
+  const { screen, dialog, toastMsg, setScreen } = useApp();
+
+  // typing /admin in the address bar (back/forward included) opens the hidden admin screen
+  useEffect(() => {
+    const sync = () => {
+      try {
+        const onAdmin = (window.location.pathname || '').replace(/\/$/, '').endsWith('/admin') || (window.location.hash || '').includes('admin');
+        if (onAdmin) setScreen('admin');
+      } catch { /* ignore */ }
+    };
+    const onPop = () => {
+      try {
+        const onAdmin = (window.location.pathname || '').replace(/\/$/, '').endsWith('/admin');
+        if (onAdmin) setScreen('admin');
+        else if ((window as unknown as { __lastScreen?: string }).__lastScreen === 'admin') setScreen('library');
+      } catch { /* ignore */ }
+    };
+    sync();
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try { (window as unknown as { __lastScreen?: string }).__lastScreen = screen; } catch { /* ignore */ }
+  }, [screen]);
 
   // keep screens mounted so state (scroll positions, search text) is preserved
   const show = (s: string) => (screen === s ? 'h-full' : 'hidden');
   return (
     <div className="flex h-full flex-col-reverse bg-surface text-on-surface md:flex-row">
       <DailyNotifications />
-      <NavRail />
+      {screen !== 'admin' && <NavRail />}
       <main className="relative min-h-0 min-w-0 flex-1">
         <div className={show('library')}>
           <LibraryBrowser />
@@ -27,6 +54,7 @@ function Shell() {
         <div className={show('find')}>{screen === 'find' && <FindScreen />}</div>
         <div className={show('more')}>{screen === 'more' && <MoreScreen />}</div>
         <div className={show('settings')}>{screen === 'settings' && <SettingsScreen />}</div>
+        <div className={show('admin')}>{screen === 'admin' && <AdminStats />}</div>
       </main>
       {dialog === 'about' && <AboutDialog />}
       {toastMsg && (

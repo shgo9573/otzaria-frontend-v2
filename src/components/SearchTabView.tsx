@@ -30,17 +30,44 @@ const cache = new Map<string, Cached>();
 const defaultOpts: Opts = { mode: 'advanced', category: 'all', limit: 100, sortBy: 'relevance', gematria: false, slop: 0, proximityScope: 'wordDistance', grouping: 'none' };
 const resultKey = (r: SearchResultItem) => `${r.bookId}:${r.lineIndex}:${r.bookTitle}`;
 
-function generationRank(value: string | undefined): number {
-  const era = normalizeHe(value || '');
+function normalizeEra(value: string | undefined): string {
+  return normalizeHe(value || '')
+    .replace(/ך/g, 'כ')
+    .replace(/ם/g, 'מ')
+    .replace(/ן/g, 'נ')
+    .replace(/ף/g, 'פ')
+    .replace(/ץ/g, 'צ');
+}
+
+export function generationRank(value: string | undefined): number {
+  const era = normalizeEra(value);
   if (!era) return 99;
-  if (era.includes('תנא')) return 1;
-  if (era.includes('אמורא')) return 2;
-  if (era.includes('סבורא')) return 3;
-  if (era.includes('גאון')) return 4;
-  if (era.includes('ראשון')) return 5;
-  if (era.includes('אחרון')) return 6;
-  if (era.includes('זמנ') || era.includes('עכשו')) return 7;
+  if (era.includes('מקרא') || era.includes('תנך') || era.includes('bible') || era.includes('tanakh')) return 0;
+  if (era.includes('תנא') || era.includes('tanna') || era.includes('mishna')) return 1;
+  if (era.includes('אמורא') || era.includes('amora') || era.includes('talmud')) return 2;
+  if (era.includes('סבורא') || era.includes('savora')) return 3;
+  if (era.includes('גאונ') || era.includes('gaon') || era.includes('geonim')) return 4;
+  if (era.includes('ראשונ') || era.includes('rishon')) return 5;
+  if (era.includes('אחרונ') || era.includes('acharon') || era.includes('achron')) return 6;
+  if (era.includes('חסיד') || era.includes('kabbal') || era.includes('קבל')) return 6;
+  if (era.includes('זמנ') || era.includes('עכשו') || era.includes('מודרנ') || era.includes('modern') || era.includes('contemporary')) return 7;
   return 50;
+}
+
+export function generationLabel(value: string | undefined): string {
+  const rank = generationRank(value);
+  return (
+    {
+      0: 'מקרא',
+      1: 'תנאים',
+      2: 'אמוראים',
+      3: 'סבוראים',
+      4: 'גאונים',
+      5: 'ראשונים',
+      6: 'אחרונים',
+      7: 'זמננו',
+    } as Record<number, string>
+  )[rank] || (value?.trim() ? value.trim() : 'תקופה לא ידועה');
 }
 
 export default function SearchTabView({ tab }: { tab: SearchTab }) {
@@ -91,6 +118,22 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
   // client-side grouping of the displayed page
   const grouped = useMemo(() => {
     if (!sorted) return null;
+    if (opts.sortBy === 'generation' && opts.grouping === 'none') {
+      const map = new Map<string, SearchResultItem[]>();
+      for (const r of sorted) {
+        const era = library?.byId.get(String(r.bookId))?.heEra;
+        const k = generationLabel(era);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k)!.push(r);
+      }
+      const order = (title: string) => {
+        const first = map.get(title)?.[0];
+        return generationRank(library?.byId.get(String(first?.bookId))?.heEra);
+      };
+      return Array.from(map.entries())
+        .sort((a, b) => order(a[0]) - order(b[0]))
+        .map(([title, items]) => ({ title, items }));
+    }
     if (opts.grouping === 'identicalText') {
       const seen = new Set<string>();
       const out: SearchResultItem[] = [];
@@ -112,7 +155,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
       return Array.from(map.entries()).map(([title, items]) => ({ title, items }));
     }
     return [{ title: '', items: sorted }];
-  }, [sorted, opts.grouping]);
+  }, [sorted, opts.grouping, opts.sortBy, library]);
 
   const buildParams = (text: string, o: Opts, offset: number) => ({
     query: text,
@@ -475,6 +518,15 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
                         <div className="flex items-baseline gap-2">
                           <span className="font-bold text-primary">{r.bookTitle}</span>
                           {r.reference && <span className="text-sm text-on-variant">{r.reference}</span>}
+                          {opts.sortBy === 'generation' &&
+                            (() => {
+                              const era = library?.byId.get(String(r.bookId))?.heEra;
+                              return era ? (
+                                <span className="shrink-0 rounded-full bg-sec-container px-2 py-0.5 text-[11px] text-on-sec-container">
+                                  {era}
+                                </span>
+                              ) : null;
+                            })()}
                         </div>
                         {r.categoryPath && <div className="mb-1 text-xs text-on-variant">{r.categoryPath}</div>}
                         <div

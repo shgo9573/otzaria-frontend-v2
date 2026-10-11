@@ -1,7 +1,7 @@
 import { api } from '../api';
 import type { BookItem, ID, TocEntry } from '../types';
 import { hebrewNumber, masechtaForName } from './talmud';
-import { chofetzChaimFor, chofetzChaimReadingFor, dafYomiFor, halachaYomitFor, mishnaYomiReadingsFor, parashaFor, rambamReadingFor } from './dailyStudy';
+import { chofetzChaimBiannual, chofetzChaimFor, chofetzChaimReadingFor, dafYomiFor, halachaYomitFor, mishnaYomiReadingsFor, parashaFor, rambamReadingFor } from './dailyStudy';
 import { HDate, Locale, Sedra } from '@hebcal/core';
 
 /** English → Hebrew names of the Mishnah tractates. */
@@ -88,7 +88,7 @@ export function findTocLine(toc: TocEntry[], wanted: string[]): number | undefin
 }
 
 /** Resolves a daily-study track to concrete book titles + a place inside the book. */
-export function targetForTrack(key: string, date: Date, halachaSchedule = 'dirshu_mishna_berura'): StudyTarget | null {
+export function targetForTrack(key: string, date: Date, halachaSchedule = 'dirshu_mishna_berura', chofetzSchedule = 'world_three_times'): StudyTarget | null {
   if (key === 'dafYomi') {
     const daf = dafYomiFor(date);
     if (!daf) return null;
@@ -129,18 +129,19 @@ export function targetForTrack(key: string, date: Date, halachaSchedule = 'dirsh
   }
 
   if (key === 'chofetzChaim') {
-    const r = chofetzChaimReadingFor(date);
+    const r = chofetzSchedule === 'world_biannual' || chofetzSchedule === 'daily_order'
+      ? chofetzChaimBiannual(date)
+      : chofetzChaimReadingFor(date);
     const section = r?.k || '';
-    const sectionHe: Record<string,string> = {
-      Hakdamah: 'הקדמה', Psichah: 'פתיחה', Lavin: 'לאוין', Asin: 'עשיין', Arurin: 'ארורין',
-      HilchosLH: 'לשון הרע', HilchosRechilus: 'רכילות', Tziyurim: 'ציורים',
-    };
-    void sectionHe;
     const numbers = String(r?.b ?? '').split('.').map(Number);
-    return { titles: ['חפץ חיים'], kind: 'chofetz', section,
+    return {
+      titles: ['חפץ חיים', 'ספר חפץ חיים'],
+      kind: 'chofetz',
+      section,
       rule: numbers.length > 1 ? numbers[0] : undefined,
       paragraph: numbers.length > 1 ? numbers[1] : numbers[0],
-      label: chofetzChaimFor(date) };
+      label: chofetzChaimFor(date, chofetzSchedule),
+    };
   }
 
   if (key === 'halachaYomit') {
@@ -159,12 +160,12 @@ export function targetForTrack(key: string, date: Date, halachaSchedule = 'dirsh
     if (halachaSchedule === 'rambam_halacha') {
       return targetForTrack('rambam', date);
     }
-    // Dirshu Daf HaYomi B'Halacha → Mishnah Berurah, reference is "siman:seif"
+    // Halacha Yomit opens Shulchan Aruch at the specific Siman
     const text = halachaYomitSiman(date);
     return {
-      titles: ['משנה ברורה'],
+      titles: ['שולחן ערוך', 'שולחן ערוך אורח חיים', 'שולחן ערוך - אורח חיים', 'שולחן ערוך או"ח', 'משנה ברורה'],
       tocTitles: text ? [`סימן ${hebrewNumber(text)}`] : undefined,
-      label: text ? `משנה ברורה סימן ${hebrewNumber(text)}` : 'משנה ברורה',
+      label: text ? `שולחן ערוך סימן ${hebrewNumber(text)}` : 'שולחן ערוך',
     };
   }
 
@@ -267,6 +268,15 @@ export async function resolveTarget(target: StudyTarget, books: BookItem[]): Pro
     // Match on that reference – the "(א)", "(ב)" markers inside the text are באר מים חיים footnotes,
     // not paragraph numbers, which is why searching the text landed in the wrong place.
     let line = entry.index;
+    if (target.section === 'Arurin') {
+      try {
+        const entryPos = toc.indexOf(entry);
+        const next = toc.find((e, i) => i > entryPos && (e.level ?? 1) <= (entry.level ?? 1));
+        const content = await api.content(book.id, entry.index, next ? next.index - 1 : entry.index + 30);
+        const first = content.lines.find((row) => row.heRef && normalize(row.heRef).includes('ארורין'));
+        if (first) line = first.lineIndex;
+      } catch { /* keep the section heading */ }
+    }
     if (target.paragraph && target.section !== 'Arurin') {
       try {
         const entryPos = toc.indexOf(entry);

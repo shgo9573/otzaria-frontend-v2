@@ -94,18 +94,30 @@ function save(key: string, v: unknown) {
 
 let tabCounter = Date.now();
 const newTabId = () => 't' + tabCounter++;
-const startupLink = typeof window === 'undefined' ? null : parseDeepLink();
-const linkedTab: BookTab | null = startupLink ? {
-  id: newTabId(), kind: 'book',
-  bookId: /^\d+$/.test(startupLink.book) ? Number(startupLink.book) : startupLink.book,
-  title: startupLink.book, line: startupLink.line,
-  highlight: startupLink.from !== undefined
-    ? { line: startupLink.line, from: startupLink.from, to: startupLink.to }
-    : startupLink.text ? { line: startupLink.line, text: startupLink.text } : undefined,
-} : null;
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [screen, setScreenState] = useState<Screen>(() => linkedTab ? 'reading' : load<Screen>('otz_screen', 'library'));
+  // Parse the link inside the provider (not at module evaluation) so it works
+  // with client-side navigation, wrappers and every browser startup order.
+  const [linkedTab] = useState<BookTab | null>(() => {
+    const d = typeof window === 'undefined' ? null : parseDeepLink();
+    if (!d) return null;
+    return {
+      id: newTabId(),
+      kind: 'book',
+      bookId: /^\d+$/.test(d.book) ? Number(d.book) : d.book,
+      title: d.book,
+      line: d.line,
+      highlight: d.from !== undefined ? { line: d.line, from: d.from, to: d.to } : d.text ? { line: d.line, text: d.text } : undefined,
+    };
+  });
+  const [screen, setScreenState] = useState<Screen>(() => {
+    try {
+      const p = window.location.pathname || '';
+      const h = window.location.hash || '';
+      if (p.replace(/\/$/, '').endsWith('/admin') || h.includes('admin')) return 'admin';
+    } catch { /* ignore */ }
+    return linkedTab ? 'reading' : load<Screen>('otz_screen', 'library');
+  });
   const [library, setLibrary] = useState<Library | null>(null);
   // when opened from a direct link we skip the (large) catalogue download until it is actually needed
   const [libraryLoading, setLibraryLoading] = useState(!linkedTab);
@@ -137,7 +149,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setScreen = useCallback((s: Screen) => {
     setScreenState(s);
-    save('otz_screen', s);
+    // the hidden admin screen is never persisted – it only opens via /admin
+    if (s !== 'admin') save('otz_screen', s);
+    try {
+      const onAdmin = (window.location.pathname || '').replace(/\/$/, '').endsWith('/admin');
+      if (s === 'admin' && !onAdmin) window.history.pushState(null, '', '/admin');
+      else if (s !== 'admin' && onAdmin) window.history.pushState(null, '', '/');
+    } catch { /* ignore */ }
   }, []);
 
   // theme + seed colour + brightness
@@ -207,7 +225,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    loadLibrary();
+    if (!linkedTab) loadLibrary();
     refreshUser();
     api
       .getSettings()
@@ -379,7 +397,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       openBook({ id: bookId, title: known?.title || d.book, categoryPath: known?.categoryPath }, d.line, highlight);
     };
     window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    window.addEventListener('popstate', onHash);
+    return () => {
+      window.removeEventListener('hashchange', onHash);
+      window.removeEventListener('popstate', onHash);
+    };
   }, [openBook]);
 
   const openSearch = useCallback(

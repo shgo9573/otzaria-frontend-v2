@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Activity, Bookmark, Calculator, CalendarCheck, CalendarDays, DatabaseBackup, History, ScrollText, Trash2, Download, Upload, PenLine } from 'lucide-react';
+import { Activity, Bookmark, Calculator, CalendarCheck, CalendarDays, DatabaseBackup, History, ScrollText, Trash2, Download, Upload, PenLine, MessageSquare } from 'lucide-react';
 import DailyStudy from './DailyStudy';
 import CalendarZmanim from './CalendarZmanim';
 import TzuratHaDaf from './TzuratHaDaf';
@@ -10,7 +10,7 @@ import { gematria, timeAgo } from '../utils/text';
 import type { ServerStatus } from '../types';
 import { t as translate } from '../i18n';
 
-type Tool = 'daily' | 'calendar' | 'daf' | 'bookmarks' | 'history' | 'notes' | 'gematria' | 'backup' | 'status';
+type Tool = 'daily' | 'calendar' | 'daf' | 'bookmarks' | 'history' | 'notes' | 'gematria' | 'backup' | 'status' | 'feedback';
 
 const TOOLS: { key: Tool; label: string; icon: ReactNode }[] = [
   { key: 'daily', label: 'לימוד יומי', icon: <CalendarCheck size={22} /> },
@@ -22,6 +22,7 @@ const TOOLS: { key: Tool; label: string; icon: ReactNode }[] = [
   { key: 'gematria', label: 'מחשבון גימטריה', icon: <Calculator size={22} /> },
   { key: 'backup', label: 'גיבוי ושחזור', icon: <DatabaseBackup size={22} /> },
   { key: 'status', label: 'סטטוס שרת', icon: <Activity size={22} /> },
+  { key: 'feedback', label: 'שליחת משוב', icon: <MessageSquare size={22} /> },
 ];
 
 export default function MoreScreen() {
@@ -58,6 +59,7 @@ export default function MoreScreen() {
           {tool === 'gematria' && <Gematria />}
           {tool === 'backup' && <Backup />}
           {tool === 'status' && <Status />}
+          {tool === 'feedback' && <Feedback />}
         </div>
       </div>
     </div>
@@ -254,6 +256,53 @@ function Backup() {
         <Btn variant="tonal" onClick={() => file.current?.click()} disabled={busy}>
           <Upload size={16} /> בחר קובץ לשחזור
         </Btn>
+      </div>
+    </div>
+  );
+}
+
+function Feedback() {
+  const { toast } = useApp();
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const text = message.trim();
+    if (!text) {
+      toast('נא לכתוב את תוכן המשוב.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api.submitFeedback(text);
+      toast(result.message || 'המשוב נשלח. תודה רבה!');
+      setMessage('');
+    } catch (e) {
+      toast((e as Error).message || 'לא הצלחנו לשלוח את המשוב.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <h2 className="mb-2 text-xl font-medium">שליחת משוב</h2>
+      <p className="mb-4 text-sm text-on-variant">אפשר לדווח כאן על תקלה, להציע שיפור או לשלוח הערה. המשוב יגיע למערכת הניהול.</p>
+      <div className="rounded-3xl border border-outline-variant bg-surface-1 p-5">
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value.slice(0, 5000))}
+          placeholder="כתבו כאן את המשוב..."
+          rows={8}
+          maxLength={5000}
+          className="w-full resize-y rounded-2xl border border-outline bg-surface p-4 text-base leading-relaxed outline-none focus:border-primary"
+        />
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <span className="text-xs text-on-variant">{message.length.toLocaleString('he-IL')} / 5,000 תווים</span>
+          <Btn variant="filled" onClick={submit} disabled={busy || !message.trim()}>
+            <MessageSquare size={16} /> {busy ? 'שולח…' : 'שלח משוב'}
+          </Btn>
+        </div>
       </div>
     </div>
   );

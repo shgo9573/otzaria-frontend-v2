@@ -484,7 +484,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
 
   const copySelectionAsLink = async () => {
     if (!selMenu) return;
-    const href = buildDeepLink({ book: String(tab.bookId), line: selMenu.line, from: selMenu.from, to: selMenu.to });
+    const href = buildDeepLink({ book: String(tab.bookId), title, line: selMenu.line, from: selMenu.from, to: selMenu.to });
     const html = `<a href="${escapeHtml(href)}" style="color:#1769e0;text-decoration:underline">${escapeHtml(selMenu.text)}</a>`;
     const plain = `${selMenu.text}\n${href}`;
     try {
@@ -677,7 +677,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
             {settings.showNikud ? 'אֶ' : 'א'}
           </span>
         </IconBtn>
-        <IconBtn title="העתק קישור לשורה הנוכחית" onClick={() => copy(buildDeepLink({ book: String(tab.bookId), line: selected ?? topLine }), 'הקישור לשורה הועתק')}>
+        <IconBtn title="העתק קישור לשורה הנוכחית" onClick={() => copy(buildDeepLink({ book: String(tab.bookId), title, line: selected ?? topLine }), 'הקישור לשורה הועתק')}>
           <Link2 size={19} />
         </IconBtn>
         <IconBtn title="הקטן גופן" onClick={() => updateSettings({ fontSize: Math.max(10, settings.fontSize - 2) })}>
@@ -796,7 +796,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
           <button onClick={() => copy(selMenu.text, 'הטקסט הועתק')} className="flex items-center gap-1 rounded-xl px-2.5 py-1.5 hover:bg-surface-3">
             <Copy size={14} /> העתק טקסט
           </button>
-          <button onClick={() => copy(buildDeepLink({ book: String(tab.bookId), line: selMenu.line }), 'הקישור לשורה הועתק')} className="rounded-xl px-2.5 py-1.5 hover:bg-surface-3">
+          <button onClick={() => copy(buildDeepLink({ book: String(tab.bookId), title, line: selMenu.line }), 'הקישור לשורה הועתק')} className="rounded-xl px-2.5 py-1.5 hover:bg-surface-3">
             קישור לשורה
           </button>
           <button

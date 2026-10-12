@@ -56,7 +56,7 @@ export default function NavRail() {
         title="מיים חיים"
         aria-label={lang === 'en' ? 'Mayim Chaim home' : 'דף הבית מיים חיים'}
       >
-        <img src="./icon.svg" alt="" className="h-10 w-10 rounded-xl object-contain" />
+        <img src="./icon.svg?v=20261012" alt="" className="h-10 w-10 rounded-xl object-contain" />
         <span>{lang === 'en' ? 'Mayim Chaim' : 'מיים חיים'}</span>
       </button>
       <div className="flex flex-row md:flex-col md:items-center">{top.map(render)}</div>

@@ -131,7 +131,9 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
   const book = library?.byId.get(String(tab.bookId));
   const blocked = isExcludedBook(book || { id: tab.bookId, title: tab.title, categoryPath: tab.category || '' });
   // Unknown IDs from direct links must wait for the catalogue to resolve source metadata.
-  const waitingForCatalogue = libraryLoading && !book && !blocked;
+  // If the catalogue cannot be loaded, fail closed rather than accidentally exposing an
+  // ID whose source cannot be verified.
+  const waitingForCatalogue = !book && !blocked && (libraryLoading || !library);
 
   const [toc, setToc] = useState<TocEntry[] | null>(null);
   const [tocError, setTocError] = useState('');
@@ -195,7 +197,14 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
       return () => { cancelled = true; };
     }
     if (waitingForCatalogue) {
-      setLoading(true);
+      if (!libraryLoading && !library) {
+        setLines([]);
+        setTotal(0);
+        setError('לא ניתן לאמת את מקור הספר כי הקטלוג לא נטען. רענן את האתר ונסה שוב.');
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
       return () => { cancelled = true; };
     }
     const start = Math.max(1, target - 60);

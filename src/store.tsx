@@ -123,7 +123,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return linkedTab ? 'reading' : load<Screen>('otz_screen', 'library');
   });
   const [library, setLibrary] = useState<Library | null>(null);
-  // when opened from a direct link we skip the (large) catalogue download until it is actually needed
   // Start in the loading state even for deep links: direct book requests must wait
   // until the catalogue has supplied source/category metadata for the requested ID.
   const [libraryLoading, setLibraryLoading] = useState(true);
@@ -574,7 +573,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       try {
         const r = await api.deleteBookmark(id);
-        setBookmarks(r.bookmarks || []);
+        setBookmarks((r.bookmarks || []).filter((item) =>
+          !isExcludedBook({ id: item.bookId, title: item.bookTitle, categoryPath: item.category }),
+        ));
       } catch (e) {
         toast((e as Error).message);
       }

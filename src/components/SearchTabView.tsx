@@ -119,22 +119,6 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
   // client-side grouping of the displayed page
   const grouped = useMemo(() => {
     if (!sorted) return null;
-    if (opts.sortBy === 'generation' && opts.grouping === 'none') {
-      const map = new Map<string, SearchResultItem[]>();
-      for (const r of sorted) {
-        const era = library?.byId.get(String(r.bookId))?.heEra;
-        const k = generationLabel(era);
-        if (!map.has(k)) map.set(k, []);
-        map.get(k)!.push(r);
-      }
-      const order = (title: string) => {
-        const first = map.get(title)?.[0];
-        return generationRank(library?.byId.get(String(first?.bookId))?.heEra);
-      };
-      return Array.from(map.entries())
-        .sort((a, b) => order(a[0]) - order(b[0]))
-        .map(([title, items]) => ({ title, items }));
-    }
     if (opts.grouping === 'identicalText') {
       const seen = new Set<string>();
       const out: SearchResultItem[] = [];

@@ -27,6 +27,8 @@ export interface CategoryNode {
 export interface CatalogData {
   categories: CategoryNode[];
   books: BookItem[];
+  /** IDs hidden by the backend because they are mapped to restricted sources. */
+  excludedBookIds?: Array<string | number>;
 }
 
 export interface ContentLine {
@@ -79,6 +81,8 @@ export interface SearchResponse {
   query: string;
   resultsCount: number;
   totalBooks?: number;
+  /** Number of raw API rows consumed before the client-side exclusions. */
+  scannedCount?: number;
   results: SearchResultItem[];
 }
 

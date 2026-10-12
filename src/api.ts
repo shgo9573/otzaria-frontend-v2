@@ -1,3 +1,4 @@
+import { EXCLUDED_BOOK_NOTICE, isExcludedBook, rememberExcludedBookId } from './utils/bookFilter';
 import type {
   BookmarkItem,
   CatalogData,
@@ -82,20 +83,38 @@ const enc = (id: ID) => encodeURIComponent(String(id));
 export const api = {
   status: () => request<ServerStatus>('/status'),
   searchHealth: () => request<{ status: string; engine?: string; indexedBooks?: number }>('/search-health'),
-  libraryTree: () => request<CatalogData>('/library/tree'),
-  content: (id: ID, start: number, end: number) =>
-    request<ContentResponse>(`/books/${enc(id)}/content?start=${start}&end=${end}`),
+  libraryTree: async (): Promise<CatalogData> => {
+    const data = await request<CatalogData>('/library/tree');
+    // The server intentionally omits mapped books from the catalog; keep their
+    // IDs in the shared predicate so old tabs/direct links cannot reopen them.
+    for (const id of data.excludedBookIds || []) rememberExcludedBookId(id);
+    return data;
+  },
+  content: (id: ID, start: number, end: number) => {
+    if (isExcludedBook({ id })) return Promise.reject(new Error(EXCLUDED_BOOK_NOTICE));
+    return request<ContentResponse>(`/books/${enc(id)}/content?start=${start}&end=${end}`);
+  },
   toc: async (id: ID): Promise<TocEntry[]> => {
+    if (isExcludedBook({ id })) throw new Error(EXCLUDED_BOOK_NOTICE);
     const r = await request<{ toc: TocEntry[] }>(`/books/${enc(id)}/toc`);
     return r.toc || [];
   },
-  links: (id: ID, line: number) => request<LinksResponse>(`/books/${enc(id)}/links?line=${line}`),
-  commentators: (id: ID) => request<{ commentators: string[] }>(`/books/${enc(id)}/commentators`),
+  links: (id: ID, line: number) => {
+    if (isExcludedBook({ id })) return Promise.reject(new Error(EXCLUDED_BOOK_NOTICE));
+    return request<LinksResponse>(`/books/${enc(id)}/links?line=${line}`);
+  },
+  commentators: (id: ID) => {
+    if (isExcludedBook({ id })) return Promise.reject(new Error(EXCLUDED_BOOK_NOTICE));
+    return request<{ commentators: string[] }>(`/books/${enc(id)}/commentators`);
+  },
 
   search: async (params: Record<string, unknown>): Promise<SearchResponse> => {
     const raw = await request<any>('/search', { method: 'POST', json: params });
     const arr: any[] = Array.isArray(raw) ? raw : raw.results || [];
-    const results: SearchResultItem[] = arr.map((r) => ({
+    const normalizedResults: SearchResultItem[] = arr.map((r) => ({
+      // Preserve any provenance/source metadata returned by the API. The shared
+      // exclusion predicate needs it to remove mapped Wikisource results too.
+      ...r,
       bookId: r.bookId ?? r.book_id ?? r.id,
       bookTitle: r.bookTitle ?? r.book_title ?? r.title ?? '',
       categoryPath: r.categoryPath ?? r.category_path ?? r.category ?? '',
@@ -104,12 +123,16 @@ export const api = {
         .find((value) => typeof value === 'string' && value.trim().length > 0) ?? '',
       reference: r.reference ?? r.heRef ?? r.he_ref ?? '',
     }));
-    const resultsCount = Number(raw.resultsCount ?? raw.total_hits ?? raw.totalHits ?? raw.total ?? results.length);
+    const results = normalizedResults.filter((result) => !isExcludedBook(result));
+    const resultsCount = Number(raw.resultsCount ?? raw.total_hits ?? raw.totalHits ?? raw.total ?? arr.length);
     return {
       query: raw.query ?? String(params.query ?? ''),
-      resultsCount: Number.isFinite(resultsCount) ? resultsCount : results.length,
+      // Keep the server's total as the pagination bound; scannedCount separately
+      // tracks raw rows so filtered hits don't cause duplicate/skip pagination.
+      resultsCount: Number.isFinite(resultsCount) ? Math.max(results.length, resultsCount) : results.length,
       totalBooks: raw.totalBooks ?? raw.total_books,
       results,
+      scannedCount: Math.max(0, Number(raw.scannedCount ?? arr.length)),
     };
   },
   deleteHistoryItem: (id: string) =>

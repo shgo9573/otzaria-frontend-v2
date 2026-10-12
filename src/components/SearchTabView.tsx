@@ -7,6 +7,7 @@ import { highlight, normalizeHe, processHtml } from '../utils/text';
 import { Btn, EmptyState, Select, Spinner, Switch } from './ui';
 import { fontStack } from './CommentaryPanel';
 import { t } from '../i18n';
+import { isExcludedBook } from '../utils/bookFilter';
 
 interface Opts {
   mode: 'advanced' | 'exact' | 'phrase' | 'fuzzy';
@@ -21,6 +22,7 @@ interface Opts {
 interface Cached {
   results: SearchResultItem[] | null;
   total: number;
+  scannedCount?: number;
   totalBooks?: number;
   error: string;
   q: string;
@@ -87,6 +89,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
   const [opts, setOpts] = useState<Opts>(cached?.opts ?? defaultOpts);
   const [results, setResults] = useState<SearchResultItem[] | null>(cached?.results ?? null);
   const [total, setTotal] = useState(cached?.total ?? 0);
+  const [scannedCount, setScannedCount] = useState(cached?.scannedCount ?? cached?.results?.length ?? 0);
   const [totalBooks, setTotalBooks] = useState<number | undefined>(cached?.totalBooks);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -102,17 +105,23 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
   const topCats = useMemo(() => library?.root.children.map((c) => c.name) ?? [], [library]);
 
   const persist = (patch: Partial<Cached>) => {
-    const prev = cache.get(tab.id) ?? { results: null, total: 0, error: '', q: '', opts };
+    const prev = cache.get(tab.id) ?? { results: null, total: 0, scannedCount: 0, error: '', q: '', opts };
     cache.set(tab.id, { ...prev, ...patch });
   };
 
   const sorted = useMemo(() => {
     if (!results) return null;
+    // Enforce exclusions here as well as in api.search so cached results and
+    // rows returned before the catalogue finished loading cannot reappear.
+    const visible = results.filter((result) => {
+      const catalogBook = library?.byId.get(String(result.bookId));
+      return !isExcludedBook({ ...result, ...(catalogBook || {}) });
+    });
     // Relevance and generation ordering must come from the search engine.
     // Client-side generation sorting would only reorder the loaded page and break pagination.
-    if (opts.sortBy === 'relevance' || opts.sortBy === 'generation') return results;
+    if (opts.sortBy === 'relevance' || opts.sortBy === 'generation') return visible;
     const catalogueIndex = new Map(library?.books.map((b, i) => [String(b.id), i]) ?? []);
-    return results
+    return visible
       .map((result, index) => ({ result, index }))
       .sort((a, b) => {
         const ai = catalogueIndex.get(String(a.result.bookId)) ?? Number.MAX_SAFE_INTEGER;
@@ -183,8 +192,17 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
         const r = await api.search(buildParams(text, o, 0));
         setResults(r.results);
         setTotal(Math.max(r.resultsCount, r.results.length));
+        setScannedCount(r.scannedCount ?? r.results.length);
         setTotalBooks(r.totalBooks ?? new Set(r.results.map((x) => String(x.bookId))).size);
-        persist({ results: r.results, total: Math.max(r.resultsCount, r.results.length), totalBooks: r.totalBooks, error: '', q: text, opts: o });
+        persist({
+          results: r.results,
+          total: Math.max(r.resultsCount, r.results.length),
+          scannedCount: r.scannedCount ?? r.results.length,
+          totalBooks: r.totalBooks,
+          error: '',
+          q: text,
+          opts: o,
+        });
       } catch (e) {
         const msg = (e as Error).message;
         setError(msg);
@@ -198,16 +216,45 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
   );
 
   const loadMore = async () => {
-    if (!results || loadingMore) return;
+    if (!results || loadingMore || scannedCount >= total) return;
     setLoadingMore(true);
     try {
-      const r = await api.search(buildParams(lastQ, opts, results.length));
-      const seen = new Set(results.map(resultKey));
-      const fresh = r.results.filter((x) => !seen.has(resultKey(x)));
-      const next = [...results, ...fresh];
+      let offset = scannedCount;
+      let scanned = scannedCount;
+      let next = results.filter((result) => {
+        const catalogBook = library?.byId.get(String(result.bookId));
+        return !isExcludedBook({ ...result, ...(catalogBook || {}) });
+      });
+      let nextTotal = total;
+      let noProgress = false;
+
+      // A raw server page may contain only excluded books. Keep paging past
+      // those pages instead of stopping early or using the shorter visible
+      // result count as the server offset.
+      for (let page = 0; page < 10 && scanned < nextTotal; page += 1) {
+        const r = await api.search(buildParams(lastQ, opts, offset));
+        const consumed = Math.max(0, Number(r.scannedCount ?? r.results.length));
+        if (consumed === 0) {
+          noProgress = true;
+          break;
+        }
+
+        const seen = new Set(next.map(resultKey));
+        const fresh = r.results.filter((result) => !seen.has(resultKey(result)));
+        next = [...next, ...fresh];
+        offset += consumed;
+        scanned += consumed;
+        nextTotal = Math.max(r.resultsCount, next.length);
+
+        if (fresh.length > 0) break;
+      }
+
+      const finished = noProgress || scanned >= nextTotal;
+      const finalTotal = finished ? next.length : nextTotal;
       setResults(next);
-      if (fresh.length === 0) setTotal(next.length); // server doesn't paginate – stop offering more
-      persist({ results: next, total: fresh.length === 0 ? next.length : total });
+      setScannedCount(scanned);
+      setTotal(finalTotal);
+      persist({ results: next, total: finalTotal, scannedCount: scanned });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -277,7 +324,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
     openBookInNewTab({ id: r.bookId, title: r.bookTitle, categoryPath: r.categoryPath }, r.lineIndex, { text: lastQ, matches });
   };
 
-  const hasMore = !!results && total > results.length;
+  const hasMore = !!results && total > scannedCount;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">

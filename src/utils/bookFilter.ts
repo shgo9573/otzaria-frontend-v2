@@ -11,7 +11,6 @@ const excludedBookIds = new Set<string>();
 
 const SOURCE_MARKERS = [
   'אוצר הספרים היהודי השיתופי',
-  'אוצר הספרים היהודי',
   'ויקיטקסט',
   'ויקי טקסט',
   'wikisource',
@@ -25,7 +24,10 @@ function normalizeText(value: unknown): string {
     // Hebrew abbreviations commonly use several different quote characters.
     .replace(/[״׳"'\u2018\u2019\u201C\u201D\u0060\u00B4]/g, '')
     .toLocaleLowerCase()
-    .replace(/[ךםןףץ]/g, (letter) => ({ ך: 'כ', ם: 'מ', ן: 'נ', ף: 'פ', ץ: 'צ' })[letter] || letter)
+    .replace(/[ךםןףץ]/g, (letter) => {
+      const finals: Record<string, string> = { ך: 'כ', ם: 'מ', ן: 'נ', ף: 'פ', ץ: 'צ' };
+      return finals[letter] || letter;
+    })
     .replace(/[^a-z0-9\u05D0-\u05EA]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ');
@@ -64,7 +66,7 @@ const excludedTitles = [
 ].map(normalizeText);
 
 const idFields = ['id', 'bookId', 'book_id', 'otzariaId', 'otzaria_id'];
-const titleFields = ['title', 'bookTitle', 'book_title', 'name', 'heTitle', 'he_title'];
+const titleFields = ['bookTitle', 'book_title', 'title', 'name', 'heTitle', 'he_title'];
 const categoryFields = [
   'categoryPath',
   'category_path',
@@ -99,10 +101,16 @@ const sourceFields = [
   'wikisourceToOtzaria',
 ];
 
-function containsSourceMarker(value: unknown): boolean {
-  if (typeof value !== 'string' || !value.trim()) return false;
-  const normalized = normalizeText(value);
-  return SOURCE_MARKERS.some((marker) => normalized.includes(normalizeText(marker)));
+function containsSourceMarker(value: unknown, depth = 0): boolean {
+  if (depth > 4 || value === null || value === undefined) return false;
+  if (typeof value === 'string') {
+    if (!value.trim()) return false;
+    const normalized = normalizeText(value);
+    return SOURCE_MARKERS.some((marker) => normalized.includes(normalizeText(marker)));
+  }
+  if (Array.isArray(value)) return value.some((item) => containsSourceMarker(item, depth + 1));
+  if (typeof value === 'object') return Object.values(value as Record<string, unknown>).some((item) => containsSourceMarker(item, depth + 1));
+  return false;
 }
 
 function normalizeId(value: unknown): string {

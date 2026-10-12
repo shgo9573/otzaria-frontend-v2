@@ -106,7 +106,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: newTabId(),
       kind: 'book',
       bookId: /^\d+$/.test(d.book) ? Number(d.book) : d.book,
-      title: d.book,
+      title: d.title || d.book,
       line: d.line,
       highlight: d.from !== undefined ? { line: d.line, from: d.from, to: d.to } : d.text ? { line: d.line, text: d.text } : undefined,
     };
@@ -402,7 +402,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const highlight: Highlight | undefined =
         d.from !== undefined ? { line: d.line, from: d.from, to: d.to } : d.text ? { line: d.line, text: d.text } : undefined;
       const known = libRef.current?.byId.get(String(bookId));
-      openBook({ id: bookId, title: known?.title || d.book, categoryPath: known?.categoryPath }, d.line, highlight);
+      openBook({ id: bookId, title: known?.title || d.title || d.book, categoryPath: known?.categoryPath }, d.line, highlight);
     };
     window.addEventListener('hashchange', onHash);
     window.addEventListener('popstate', onHash);

@@ -583,6 +583,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      // Command/Ctrl+R must remain the browser's native refresh shortcut, even when the Hebrew keyboard layout makes e.key equal to 'ר'.
+      if (e.code === 'KeyR') return;
       const k = e.key.toLowerCase();
       const map: Record<string, () => void> = {
         l: () => setScreen('library'),

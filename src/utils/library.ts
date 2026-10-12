@@ -1,4 +1,5 @@
 import type { BookItem, CatalogData, CategoryNode } from '../types';
+import { isExcludedBook, isExcludedCategory, rememberExcludedBookId } from './bookFilter';
 
 export interface LibNode {
   name: string;
@@ -42,15 +43,30 @@ export function buildLibrary(data: CatalogData): Library {
 
   const addBook = (node: LibNode, b: BookItem) => {
     const key = String(b.id);
+    if (isExcludedBook(b)) {
+      rememberExcludedBookId(b.id);
+      return;
+    }
     if (seen.has(key)) return;
     seen.add(key);
     node.books.push(b);
     all.push(b);
   };
 
+  // When the source itself is blocked, record every descendant ID before
+  // removing that branch. The same books may also appear in data.books flat.
+  const rememberCategoryBooks = (category: CategoryNode) => {
+    for (const b of category.books || []) rememberExcludedBookId(b.id);
+    for (const child of category.children || []) rememberCategoryBooks(child);
+  };
+
   const walk = (cats: CategoryNode[], parentPath: string) => {
     for (const c of cats || []) {
       const path = c.path && c.path.length ? c.path : parentPath ? parentPath + '/' + c.name : c.name;
+      if (isExcludedCategory(path) || isExcludedCategory(c.name)) {
+        rememberCategoryBooks(c);
+        continue;
+      }
       const node = ensure(path);
       for (const b of c.books || []) addBook(node, { ...b, categoryPath: b.categoryPath || path });
       if (c.children?.length) walk(c.children, path);

@@ -7,7 +7,7 @@ import { Btn, EmptyState } from './ui';
 import { t } from '../i18n';
 
 export default function ReadingScreen() {
-  const { tabs, activeTabId, setActiveTab, closeTab, setScreen, openSearch, settings } = useApp();
+  const { tabs, activeTabId, setActiveTab, closeTab, closeAllTabs, setScreen, openSearch, settings } = useApp();
   const lang = settings.interfaceLanguage;
   const active = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const stripRef = useRef<HTMLDivElement>(null);
@@ -36,6 +36,18 @@ export default function ReadingScreen() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-end bg-surface-1">
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm(`לסגור את כל ${tabs.length} הלשוניות הפתוחות? לא ניתן לשחזר את הלשוניות לאחר הסגירה.`)) closeAllTabs();
+          }}
+          className="flex h-9 shrink-0 items-center gap-1.5 border-l border-outline-variant px-3 text-xs text-on-variant transition hover:bg-surface-3"
+          title={lang === 'en' ? 'Close all tabs' : 'סגור את כל הלשוניות'}
+          aria-label={lang === 'en' ? 'Close all tabs' : 'סגור את כל הלשוניות'}
+        >
+          <X size={15} />
+          <span className="whitespace-nowrap">{lang === 'en' ? 'Close all' : 'סגור הכול'}</span>
+        </button>
         <div ref={stripRef} className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-1 pt-1.5" style={{ scrollbarWidth: 'thin' }}>
           {tabs.map((t) => {
             const isActive = active?.id === t.id;

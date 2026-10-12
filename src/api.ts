@@ -1,4 +1,4 @@
-import { EXCLUDED_BOOK_NOTICE, isExcludedBook } from './utils/bookFilter';
+import { EXCLUDED_BOOK_NOTICE, isExcludedBook, rememberExcludedBookId } from './utils/bookFilter';
 import type {
   BookmarkItem,
   CatalogData,
@@ -83,7 +83,13 @@ const enc = (id: ID) => encodeURIComponent(String(id));
 export const api = {
   status: () => request<ServerStatus>('/status'),
   searchHealth: () => request<{ status: string; engine?: string; indexedBooks?: number }>('/search-health'),
-  libraryTree: () => request<CatalogData>('/library/tree'),
+  libraryTree: async (): Promise<CatalogData> => {
+    const data = await request<CatalogData>('/library/tree');
+    // The server intentionally omits mapped books from the catalog; keep their
+    // IDs in the shared predicate so old tabs/direct links cannot reopen them.
+    for (const id of data.excludedBookIds || []) rememberExcludedBookId(id);
+    return data;
+  },
   content: (id: ID, start: number, end: number) => {
     if (isExcludedBook({ id })) return Promise.reject(new Error(EXCLUDED_BOOK_NOTICE));
     return request<ContentResponse>(`/books/${enc(id)}/content?start=${start}&end=${end}`);

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, BookOpen, Clock3, Home, LogOut, Mail, RefreshCw, Search,
-  Server, ShieldCheck, UserRound, UsersRound, Eye, MousePointerClick,
+  Activity, Archive, BookOpen, Clock3, Home, LogOut, Mail, MessageSquare,
+  RefreshCw, RotateCcw, Search, Server, ShieldCheck, Trash2, UserRound,
+  UsersRound, Eye, MousePointerClick,
 } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
@@ -31,6 +32,16 @@ interface LogRow {
   time?: string; timestamp?: string; createdAt?: string;
   method?: string; path?: string; url?: string; message?: string; msg?: string;
   status?: number; statusCode?: number; ip?: string; user?: string;
+  [k: string]: unknown;
+}
+
+interface FeedbackRow {
+  id?: string; createdAt?: string; text?: string;
+}
+
+interface UserBackup {
+  backupId?: string; createdAt?: string; reason?: string;
+  userCount?: number; sizeBytes?: number;
   [k: string]: unknown;
 }
 
@@ -101,7 +112,11 @@ export default function AdminStats() {
   const [stats, setStats] = useState<StatsShape | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
-  const [tab, setTab] = useState<'overview' | 'users' | 'logs'>('overview');
+  const [feedbackRows, setFeedbackRows] = useState<FeedbackRow[]>([]);
+  const [userBackups, setUserBackups] = useState<UserBackup[]>([]);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionMsg, setActionMsg] = useState('');
+  const [tab, setTab] = useState<'overview' | 'users' | 'logs' | 'feedback' | 'backups'>('overview');
   const [userQuery, setUserQuery] = useState('');
 
   const authed = !!key;
@@ -130,6 +145,9 @@ export default function AdminStats() {
     setStats(null);
     setUsers([]);
     setLogs([]);
+    setFeedbackRows([]);
+    setUserBackups([]);
+    setActionMsg('');
   };
 
   const loadAll = useCallback(async () => {
@@ -137,16 +155,22 @@ export default function AdminStats() {
     setLoading(true);
     setErr('');
     try {
-      const [s, u, l] = await Promise.all([
+      const [s, u, l, f, b] = await Promise.all([
         api.adminFetch<any>(`/admin/stats?days=${days}`, key),
         api.adminFetch<any>('/admin/users', key).catch(() => null),
         api.adminFetch<any>('/admin/logs?limit=50', key).catch(() => null),
+        api.adminFetch<any>('/admin/feedback', key).catch(() => null),
+        api.adminFetch<any>('/admin/user-backups', key).catch(() => null),
       ]);
       setStats((s?.stats || s?.data || s) as StatsShape);
       const ulist = Array.isArray(u) ? u : u?.users || u?.data || [];
       setUsers(Array.isArray(ulist) ? ulist : []);
       const llist = Array.isArray(l) ? l : l?.logs || l?.data || [];
       setLogs(Array.isArray(llist) ? llist : []);
+      const flist = Array.isArray(f) ? f : f?.feedback || f?.data || [];
+      setFeedbackRows(Array.isArray(flist) ? flist : []);
+      const blist = Array.isArray(b) ? b : b?.backups || b?.data || [];
+      setUserBackups(Array.isArray(blist) ? blist : []);
     } catch (e) {
       const msg = (e as Error).message || 'שגיאה בטעינה';
       setErr(msg);
@@ -211,6 +235,71 @@ export default function AdminStats() {
       [u.email, u.userId, u.uid, u.id].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)),
     );
   }, [users, userQuery]);
+
+  const deleteUser = async (user: AdminUser) => {
+    const id = str(user.userId || user.uid || user.id);
+    if (!id || !window.confirm('למחוק את המשתמש הזה? לפני המחיקה נשמר גיבוי אוטומטי.')) return;
+    setActionBusy(true);
+    setActionMsg('');
+    try {
+      const result = await api.adminFetch<any>(`/admin/users/${encodeURIComponent(id)}`, key, { method: 'DELETE' });
+      setActionMsg(result.message || 'המשתמש נמחק והגיבוי נשמר.');
+      await loadAll();
+    } catch (e) {
+      setActionMsg((e as Error).message || 'מחיקת המשתמש נכשלה.');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const deleteAllUsers = async () => {
+    if (!users.length || !window.confirm('למחוק את כל המשתמשים? המערכת תיצור גיבוי מלא לפני המחיקה.')) return;
+    const confirmation = window.prompt('לאישור המחיקה הכוללת, הקלידו בדיוק: DELETE ALL USERS');
+    if (confirmation !== 'DELETE ALL USERS') return;
+    setActionBusy(true);
+    setActionMsg('');
+    try {
+      const result = await api.adminFetch<any>('/admin/users', key, {
+        method: 'DELETE',
+        headers: { 'x-confirm-delete-all-users': 'DELETE ALL USERS' },
+      });
+      setActionMsg(result.message || 'כל המשתמשים נמחקו; הגיבוי נשמר.');
+      await loadAll();
+    } catch (e) {
+      setActionMsg((e as Error).message || 'מחיקת כל המשתמשים נכשלה.');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const createAllUsersBackup = async () => {
+    setActionBusy(true);
+    setActionMsg('');
+    try {
+      const result = await api.adminFetch<any>('/admin/user-backups', key, { method: 'POST', json: {} });
+      setActionMsg(result.message || 'נוצר גיבוי של כל המשתמשים.');
+      await loadAll();
+    } catch (e) {
+      setActionMsg((e as Error).message || 'יצירת הגיבוי נכשלה.');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const restoreUsersBackup = async (backupId: string) => {
+    if (!backupId || !window.confirm('לשחזר את המשתמשים מהגיבוי הזה? המשתמשים הנוכחיים יקבלו גיבוי בטיחות לפני השחזור.')) return;
+    setActionBusy(true);
+    setActionMsg('');
+    try {
+      const result = await api.adminFetch<any>(`/admin/user-backups/${encodeURIComponent(backupId)}/restore`, key, { method: 'POST', json: {} });
+      setActionMsg(result.message || 'השחזור הסתיים.');
+      await loadAll();
+    } catch (e) {
+      setActionMsg((e as Error).message || 'שחזור הגיבוי נכשל.');
+    } finally {
+      setActionBusy(false);
+    }
+  };
 
   if (!authed) {
     return (
@@ -279,6 +368,11 @@ export default function AdminStats() {
             <button onClick={() => { setErr(''); loadAll(); }} className="mr-2 underline">נסה שוב</button>
           </div>
         )}
+        {actionMsg && (
+          <div className="mb-4 rounded-2xl border border-outline-variant bg-surface-1 p-3 text-sm">
+            {actionMsg}
+          </div>
+        )}
 
         {stats && summary && (
           <>
@@ -289,15 +383,17 @@ export default function AdminStats() {
               <StatCard icon={<BookOpen size={22} />} label="ספרים" value={summary.books ? summary.books.toLocaleString('he-IL') : '—'} sub="בקטלוג" tone="bg-amber-500/15 text-amber-600 dark:text-amber-300" />
             </div>
 
-            <div className="mb-5 flex gap-1 rounded-full bg-surface-1 p-1">
+            <div className="mb-5 flex flex-wrap gap-1 rounded-full bg-surface-1 p-1">
               {(
                 [
                   ['overview', 'סקירה'],
                   ['users', `משתמשים (${users.length})`],
                   ['logs', 'יומן שרת'],
+                  ['feedback', `משובים (${feedbackRows.length})`],
+                  ['backups', `גיבויים (${userBackups.length})`],
                 ] as const
               ).map(([k, label]) => (
-                <button key={k} onClick={() => setTab(k)} className={`flex-1 rounded-full py-2 text-sm ${tab === k ? 'bg-sec-container font-medium text-on-sec-container' : 'text-on-variant'}`}>
+                <button key={k} onClick={() => setTab(k)} className={`min-w-max flex-1 rounded-full px-3 py-2 text-sm ${tab === k ? 'bg-sec-container font-medium text-on-sec-container' : 'text-on-variant'}`}>
                   {label}
                 </button>
               ))}
@@ -348,6 +444,9 @@ export default function AdminStats() {
               <div className="rounded-3xl border border-outline-variant bg-surface-1 p-5">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <div className="flex items-center gap-2 text-sm font-bold"><UsersRound size={16} /> משתמשים רשומים ({filteredUsers.length})</div>
+                  <button onClick={deleteAllUsers} disabled={actionBusy || users.length === 0} className="inline-flex items-center gap-1 rounded-full border border-error/40 px-3 py-1.5 text-xs text-error disabled:opacity-50">
+                    <Trash2 size={14} /> מחק את כולם
+                  </button>
                   <input
                     value={userQuery}
                     onChange={(e) => setUserQuery(e.target.value)}
@@ -359,13 +458,14 @@ export default function AdminStats() {
                   <EmptyState icon={<UserRound size={44} />} title="אין משתמשים להצגה" />
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[560px] text-sm">
+                    <table className="w-full min-w-[700px] text-sm">
                       <thead>
                         <tr className="border-b border-outline-variant text-start text-xs text-on-variant">
                           <th className="p-2 text-start font-medium">אימייל</th>
                           <th className="p-2 text-start font-medium">מזהה</th>
                           <th className="p-2 text-start font-medium">נרשם</th>
                           <th className="p-2 text-start font-medium">פעילות אחרונה</th>
+                          <th className="p-2 text-start font-medium">פעולות</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -380,6 +480,11 @@ export default function AdminStats() {
                             <td className="p-2 font-mono text-xs text-on-variant" dir="ltr">{str(u.userId || u.uid || u.id).slice(0, 13)}…</td>
                             <td className="p-2 text-xs">{fmtDate(u.createdAt || u.created_at || u.registeredAt)}</td>
                             <td className="p-2 text-xs text-on-variant">{timeAgo(u.lastSeen || u.lastActive) || '—'}</td>
+                            <td className="p-2">
+                              <button onClick={() => deleteUser(u)} disabled={actionBusy} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-error hover:bg-red-500/10 disabled:opacity-50">
+                                <Trash2 size={13} /> מחק
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -406,6 +511,51 @@ export default function AdminStats() {
                       )}
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {tab === 'feedback' && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm font-bold"><MessageSquare size={17} /> משובים שהתקבלו ({feedbackRows.length})</div>
+                {feedbackRows.length === 0 && <EmptyState icon={<MessageSquare size={44} />} title="אין משובים עדיין" hint="משוב חדש שיוגש באתר יופיע כאן." />}
+                {feedbackRows.map((item, i) => (
+                  <article key={item.id || i} className="rounded-3xl border border-outline-variant bg-surface-1 p-5">
+                    <div className="mb-2 text-xs text-on-variant">{fmtDate(item.createdAt)}</div>
+                    <pre dir="auto" className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{str(item.text)}</pre>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            {tab === 'backups' && (
+              <div className="rounded-3xl border border-outline-variant bg-surface-1 p-5">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-bold"><Archive size={17} /> גיבויי כל המשתמשים</div>
+                    <p className="mt-1 text-xs text-on-variant">הגיבויים נשמרים בשרת. לפני מחיקה או שחזור נוצר גיבוי נוסף.</p>
+                  </div>
+                  <button onClick={createAllUsersBackup} disabled={actionBusy} className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-50">
+                    <Archive size={16} /> {actionBusy ? 'מבצע…' : 'גבה את כל המשתמשים'}
+                  </button>
+                </div>
+                {userBackups.length === 0 && <EmptyState icon={<Archive size={44} />} title="אין גיבויים זמינים" hint="אפשר ליצור גיבוי חדש באמצעות הכפתור." />}
+                <div className="space-y-2">
+                  {userBackups.map((backup, i) => {
+                    const backupId = str(backup.backupId);
+                    return (
+                      <div key={backupId || i} className="flex flex-wrap items-center gap-3 rounded-2xl border border-outline-variant/60 p-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium">{fmtDate(backup.createdAt)}</div>
+                          <div className="mt-1 text-xs text-on-variant">{str(backup.reason) || 'גיבוי'} · {num(backup.userCount)} משתמשים · {(num(backup.sizeBytes) / 1024).toFixed(1)} KB</div>
+                          <div className="mt-1 break-all font-mono text-[10px] text-on-variant" dir="ltr">{backupId}</div>
+                        </div>
+                        <button onClick={() => restoreUsersBackup(backupId)} disabled={actionBusy || !backupId} className="inline-flex items-center gap-1 rounded-full border border-outline px-3 py-2 text-xs hover:bg-surface-3 disabled:opacity-50">
+                          <RotateCcw size={14} /> שחזר למערכת
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

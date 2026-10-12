@@ -261,7 +261,7 @@ function Backup() {
   );
 }
 
-function Feedback() {
+export function Feedback() {
   const { toast } = useApp();
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);

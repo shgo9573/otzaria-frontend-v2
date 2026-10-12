@@ -79,6 +79,8 @@ export interface SearchResponse {
   query: string;
   resultsCount: number;
   totalBooks?: number;
+  /** Number of raw API rows consumed before the client-side exclusions. */
+  scannedCount?: number;
   results: SearchResultItem[];
 }
 

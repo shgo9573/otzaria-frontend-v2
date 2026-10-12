@@ -65,7 +65,6 @@ const excludedTitles = [
   'הר שפר',
 ].map(normalizeText);
 
-const idFields = ['id', 'bookId', 'book_id', 'otzariaId', 'otzaria_id'];
 const titleFields = ['bookTitle', 'book_title', 'title', 'name', 'heTitle', 'he_title'];
 const categoryFields = [
   'categoryPath',
@@ -131,10 +130,12 @@ export function isExcludedBook(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
 
   const record = value as Record<string, unknown>;
-  for (const field of idFields) {
-    const id = normalizeId(record[field]);
-    if (id && excludedBookIds.has(id)) return true;
-  }
+  // Search rows may have their own result "id" as well as a separate bookId.
+  // Prefer the book identifier to avoid accidental collisions with a row ID.
+  const primaryId = normalizeId(
+    record.bookId ?? record.book_id ?? record.otzariaId ?? record.otzaria_id ?? record.id,
+  );
+  if (primaryId && excludedBookIds.has(primaryId)) return true;
 
   for (const field of categoryFields) {
     if (containsSourceMarker(record[field])) return true;

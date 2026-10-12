@@ -264,35 +264,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setHistory((current) => current.filter((item) =>
       !isExcludedBook({ id: item.bookId, title: item.bookTitle, categoryPath: item.category }),
     ));
+    const currentTabs = tabsRef.current;
     let excludedActiveTab = false;
-    setTabs((current) => {
-      const visible = current
-        .filter((tab) => {
-          if (tab.kind !== 'book') return true;
-          const book = library.byId.get(String(tab.bookId));
-          const candidate = book || { id: tab.bookId, title: tab.title, categoryPath: tab.category || '' };
-          const blocked = isExcludedBook(candidate);
-          if (blocked && tab.id === activeTabId) excludedActiveTab = true;
-          return !blocked;
-        })
-        .map((tab) => {
-          if (tab.kind !== 'book') return tab;
-          const book = library.byId.get(String(tab.bookId));
-          return book && (book.title !== tab.title || book.categoryPath !== tab.category)
-            ? { ...tab, title: book.title, category: book.categoryPath }
-            : tab;
-        });
-      if (visible.length !== current.length) {
-        setActiveTabId((currentActive) =>
-          visible.some((tab) => tab.id === currentActive)
-            ? currentActive
-            : visible[visible.length - 1]?.id ?? null,
-        );
-        if (excludedActiveTab && visible.length === 0) setScreen('library');
-        if (excludedActiveTab) toast(EXCLUDED_BOOK_NOTICE);
-      }
-      return visible;
-    });
+    const visibleTabs = currentTabs
+      .filter((tab) => {
+        if (tab.kind !== 'book') return true;
+        const book = library.byId.get(String(tab.bookId));
+        const candidate = book || { id: tab.bookId, title: tab.title, categoryPath: tab.category || '' };
+        const blocked = isExcludedBook(candidate);
+        if (blocked && tab.id === activeTabId) excludedActiveTab = true;
+        return !blocked;
+      })
+      .map((tab) => {
+        if (tab.kind !== 'book') return tab;
+        const book = library.byId.get(String(tab.bookId));
+        return book && (book.title !== tab.title || book.categoryPath !== tab.category)
+          ? { ...tab, title: book.title, category: book.categoryPath }
+          : tab;
+      });
+    const tabsChanged = visibleTabs.length !== currentTabs.length ||
+      visibleTabs.some((tab, index) => tab !== currentTabs[index]);
+    if (tabsChanged) {
+      setTabs(visibleTabs);
+      setActiveTabId((currentActive) =>
+        visibleTabs.some((tab) => tab.id === currentActive)
+          ? currentActive
+          : visibleTabs[visibleTabs.length - 1]?.id ?? null,
+      );
+      if (excludedActiveTab && visibleTabs.length === 0) setScreen('library');
+      if (excludedActiveTab) toast(EXCLUDED_BOOK_NOTICE);
+    }
   }, [library, activeTabId, setScreen, toast]);
 
   const updateSettings = useCallback((p: Partial<ReaderSettings>) => {

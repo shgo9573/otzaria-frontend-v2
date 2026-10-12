@@ -257,6 +257,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!library) return;
+    // Old bookmarks/history can be loaded before the catalogue; re-filter them
+    // once the complete source-to-book ID set has been discovered.
+    setBookmarks((current) => current.filter((item) =>
+      !isExcludedBook({ id: item.bookId, title: item.bookTitle, categoryPath: item.category }),
+    ));
+    setHistory((current) => current.filter((item) =>
+      !isExcludedBook({ id: item.bookId, title: item.bookTitle, categoryPath: item.category }),
+    ));
     let excludedActiveTab = false;
     setTabs((current) => {
       const visible = current
@@ -530,7 +538,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setHistory((h) => h.filter((x) => x.id !== item.id));
       try {
         const r = await api.deleteHistoryItem(item.id);
-        if (r.history) setHistory(r.history);
+        if (r.history) setHistory(r.history.filter((entry) =>
+          !isExcludedBook({ id: entry.bookId, title: entry.bookTitle, categoryPath: entry.category }),
+        ));
       } catch {
         // no per-item endpoint on the server yet – remember it as hidden in the user's settings
         setSettings((prev) => {
@@ -549,7 +559,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (b: Partial<BookmarkItem>) => {
       try {
         const r = await api.addBookmark(b);
-        setBookmarks(r.bookmarks || []);
+        setBookmarks((r.bookmarks || []).filter((entry) =>
+          !isExcludedBook({ id: entry.bookId, title: entry.bookTitle, categoryPath: entry.category }),
+        ));
         toast('הסימניה נוספה');
       } catch (e) {
         toast((e as Error).message || 'שגיאה בהוספת סימניה');
@@ -596,7 +608,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const clearHistory = useCallback(async () => {
     try {
       const r = await api.clearHistory();
-      setHistory(r.history || []);
+      setHistory((r.history || []).filter((entry) =>
+        !isExcludedBook({ id: entry.bookId, title: entry.bookTitle, categoryPath: entry.category }),
+      ));
     } catch (e) {
       toast((e as Error).message);
     }
@@ -662,18 +676,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [setScreen, openSearch]);
 
+  const setVisibleBookmarks = useCallback((items: BookmarkItem[]) => {
+    setBookmarks(items.filter((item) =>
+      !isExcludedBook({ id: item.bookId, title: item.bookTitle, categoryPath: item.category }),
+    ));
+  }, []);
+
+  const setVisibleHistory = useCallback((items: ReadingHistoryItem[]) => {
+    setHistory(items.filter((item) =>
+      !isExcludedBook({ id: item.bookId, title: item.bookTitle, categoryPath: item.category }),
+    ));
+  }, []);
+
   const value = useMemo<Ctx>(
     () => ({
       screen, setScreen, library, libraryLoading, libraryError, reloadLibrary: loadLibrary,
       settings, updateSettings, resetSettings,
       tabs, activeTabId, setActiveTab, closeTab, closeAllTabs, updateTab, openBook, openBookInNewTab, openBookInActiveTab, openBookByTitle, openSearch,
       recentSearches, recordSearch, removeRecentSearch, clearRecentSearches,
-      bookmarks, history, refreshUser, addBookmark, removeBookmark, saveHistory, clearHistory, setBookmarks, setHistory,
+      bookmarks, history, refreshUser, addBookmark, removeBookmark, saveHistory, clearHistory,
+      setBookmarks: setVisibleBookmarks, setHistory: setVisibleHistory,
       removeHistoryItem, notes, saveNote, deleteNote,
       account, setAccount, signOut,
       toast, toastMsg, dialog, setDialog,
     }),
-    [screen, setScreen, library, libraryLoading, libraryError, loadLibrary, settings, updateSettings, resetSettings, tabs, activeTabId, setActiveTab, closeTab, closeAllTabs, updateTab, openBook, openBookInNewTab, openBookInActiveTab, openBookByTitle, openSearch, recentSearches, recordSearch, removeRecentSearch, clearRecentSearches, bookmarks, history, refreshUser, addBookmark, removeBookmark, saveHistory, clearHistory, removeHistoryItem, notes, saveNote, deleteNote, account, signOut, toast, toastMsg, dialog],
+    [screen, setScreen, library, libraryLoading, libraryError, loadLibrary, settings, updateSettings, resetSettings, tabs, activeTabId, setActiveTab, closeTab, closeAllTabs, updateTab, openBook, openBookInNewTab, openBookInActiveTab, openBookByTitle, openSearch, recentSearches, recordSearch, removeRecentSearch, clearRecentSearches, bookmarks, history, refreshUser, addBookmark, removeBookmark, saveHistory, clearHistory, setVisibleBookmarks, setVisibleHistory, removeHistoryItem, notes, saveNote, deleteNote, account, signOut, toast, toastMsg, dialog],
   );
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;

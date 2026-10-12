@@ -38,6 +38,7 @@ interface Ctx {
   activeTabId: string | null;
   setActiveTab: (id: string) => void;
   closeTab: (id: string) => void;
+  closeAllTabs: () => void;
   updateTab: (id: string, patch: Partial<BookTab> | Partial<SearchTab>) => void;
   openBook: (ref: BookRef, line?: number, highlight?: Highlight) => void;
   openBookInNewTab: (ref: BookRef, line?: number, highlight?: Highlight) => void;
@@ -225,7 +226,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!linkedTab) loadLibrary();
+    // Load the catalogue in the background even for deep links so book IDs resolve to titles.
+    loadLibrary();
     refreshUser();
     api
       .getSettings()
@@ -241,7 +243,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .catch(() => undefined);
   }, [loadLibrary, refreshUser]);
 
-  // opened from a link: fetch the catalogue only once the user leaves the reader
+  // Direct links render immediately while the catalogue loads in the background.
   useEffect(() => {
     if (!library && screen !== 'reading') ensureLibrary();
   }, [screen, library, ensureLibrary]);
@@ -292,6 +294,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTabs(next);
     setActiveTabId((a) => (a === id ? next[Math.min(idx, next.length - 1)]?.id ?? null : a));
   }, []);
+
+  const closeAllTabs = useCallback(() => {
+    setTabs([]);
+    setActiveTabId(null);
+    setScreen('library');
+  }, [setScreen]);
 
   const updateTab = useCallback((id: string, patch: Partial<BookTab> | Partial<SearchTab>) => {
     setTabs((ts) => ts.map((t) => (t.id === id ? ({ ...t, ...patch } as Tab) : t)));
@@ -578,7 +586,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const k = e.key.toLowerCase();
       const map: Record<string, () => void> = {
         l: () => setScreen('library'),
-        r: () => setScreen('reading'),
         m: () => setScreen('more'),
         ',': () => setScreen('settings'),
         o: () => setScreen('find'),
@@ -604,14 +611,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => ({
       screen, setScreen, library, libraryLoading, libraryError, reloadLibrary: loadLibrary,
       settings, updateSettings, resetSettings,
-      tabs, activeTabId, setActiveTab, closeTab, updateTab, openBook, openBookInNewTab, openBookInActiveTab, openBookByTitle, openSearch,
+      tabs, activeTabId, setActiveTab, closeTab, closeAllTabs, updateTab, openBook, openBookInNewTab, openBookInActiveTab, openBookByTitle, openSearch,
       recentSearches, recordSearch, removeRecentSearch, clearRecentSearches,
       bookmarks, history, refreshUser, addBookmark, removeBookmark, saveHistory, clearHistory, setBookmarks, setHistory,
       removeHistoryItem, notes, saveNote, deleteNote,
       account, setAccount, signOut,
       toast, toastMsg, dialog, setDialog,
     }),
-    [screen, setScreen, library, libraryLoading, libraryError, loadLibrary, settings, updateSettings, resetSettings, tabs, activeTabId, setActiveTab, closeTab, updateTab, openBook, openBookInNewTab, openBookInActiveTab, openBookByTitle, openSearch, recentSearches, recordSearch, removeRecentSearch, clearRecentSearches, bookmarks, history, refreshUser, addBookmark, removeBookmark, saveHistory, clearHistory, removeHistoryItem, notes, saveNote, deleteNote, account, signOut, toast, toastMsg, dialog],
+    [screen, setScreen, library, libraryLoading, libraryError, loadLibrary, settings, updateSettings, resetSettings, tabs, activeTabId, setActiveTab, closeTab, closeAllTabs, updateTab, openBook, openBookInNewTab, openBookInActiveTab, openBookByTitle, openSearch, recentSearches, recordSearch, removeRecentSearch, clearRecentSearches, bookmarks, history, refreshUser, addBookmark, removeBookmark, saveHistory, clearHistory, removeHistoryItem, notes, saveNote, deleteNote, account, signOut, toast, toastMsg, dialog],
   );
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;

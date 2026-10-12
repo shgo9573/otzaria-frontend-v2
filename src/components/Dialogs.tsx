@@ -14,7 +14,7 @@ export function AboutDialog() {
             <div className="text-2xl font-bold" style={{ fontFamily: '"Frank Ruhl Libre"' }}>
               מיים חיים
             </div>
-            <div className="text-on-variant">הספרייה היהודית ברשת – מבוסס על אוצריא</div>
+            <div className="text-on-variant">מאגר ספרים תורני מקוון – מבוסס על אוצריא</div>
           </div>
         </div>
         <p>

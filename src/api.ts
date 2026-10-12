@@ -142,6 +142,9 @@ export const api = {
       { method: 'POST', json: { backupData, mode } },
     ),
 
+  submitFeedback: (message: string) =>
+    request<{ success: boolean; message?: string }>('/feedback', { method: 'POST', json: { message } }),
+
   adminVerify: async (code: string): Promise<{ ok: boolean; key: string; raw: unknown }> => {
     const raw = await request<any>('/admin/verify', { method: 'POST', json: { code, adminCode: code, key: code } });
     const ok = !!(raw && (raw.success === true || raw.ok === true || raw.valid === true || raw.verified === true || raw.authenticated === true));
@@ -149,8 +152,20 @@ export const api = {
     if (!ok && raw && typeof raw === 'object' && 'error' in raw && raw.error) throw new Error(String((raw as any).message || (raw as any).error));
     return { ok: ok || !raw?.error, key, raw };
   },
-  adminFetch: async <T,>(path: string, adminKey: string): Promise<T> => {
-    const res = await fetch(API_BASE + path, { headers: { Accept: 'application/json', 'x-admin-key': adminKey } });
+  adminFetch: async <T,>(
+    path: string,
+    adminKey: string,
+    init: RequestInit & { json?: unknown } = {},
+  ): Promise<T> => {
+    const { json, ...requestInit } = init;
+    const headers: Record<string, string> = { Accept: 'application/json', 'x-admin-key': adminKey };
+    new Headers(requestInit.headers).forEach((value, name) => { headers[name] = value; });
+    let body: BodyInit | undefined = requestInit.body ?? undefined;
+    if (json !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify(json);
+    }
+    const res = await fetch(API_BASE + path, { ...requestInit, headers, body });
     if (!res.ok) {
       let msg = `שגיאת שרת (${res.status})`;
       try {

@@ -96,9 +96,6 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ lines: ContentLine[]; error: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [fallbackSnippets, setFallbackSnippets] = useState<Record<string, string>>({});
-  const [fallbackPending, setFallbackPending] = useState<Set<string>>(() => new Set());
-  const fallbackSnippetRequests = useRef(new Set<string>());
   const inputRef = useRef<HTMLInputElement>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
 
@@ -134,9 +131,11 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
       const seen = new Set<string>();
       const out: SearchResultItem[] = [];
       for (const r of sorted) {
-        const k = normalizeHe(r.snippet || fallbackSnippets[resultKey(r)] || '').slice(0, 160);
-        if (seen.has(k)) continue;
-        seen.add(k);
+        const k = normalizeHe(r.snippet || '').slice(0, 160);
+        // Empty snippets are not equal text; keep those results distinct.
+        const dedupeKey = k || `missing:${resultKey(r)}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
         out.push(r);
       }
       return [{ title: '', items: out }];
@@ -151,7 +150,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
       return Array.from(map.entries()).map(([title, items]) => ({ title, items }));
     }
     return [{ title: '', items: sorted }];
-  }, [sorted, opts.grouping, opts.sortBy, library, fallbackSnippets]);
+  }, [sorted, opts.grouping, opts.sortBy, library]);
 
   const buildParams = (text: string, o: Opts, offset: number) => ({
     query: text,
@@ -230,86 +229,9 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.query]);
 
-  useEffect(() => {
-    const missing = (results ?? []).filter((result) => {
-      const key = resultKey(result);
-      return !hasVisibleSnippet(result.snippet) && !fallbackSnippetRequests.current.has(key);
-    });
-    if (missing.length === 0) return;
+  // Do not fetch book content for every search hit. Missing snippets stay lazy;
+  // the content endpoint is called only for the selected result's preview.
 
-    const keys = missing.map(resultKey);
-    missing.forEach((result) => fallbackSnippetRequests.current.add(resultKey(result)));
-    setFallbackPending((current) => new Set([...current, ...keys]));
-
-    const byBook = new Map<string, SearchResultItem[]>();
-    for (const result of missing) {
-      const key = String(result.bookId);
-      const items = byBook.get(key) ?? [];
-      items.push(result);
-      byBook.set(key, items);
-    }
-
-    const batches: Array<{
-      bookId: SearchResultItem['bookId'];
-      start: number;
-      end: number;
-      items: SearchResultItem[];
-    }> = [];
-
-    for (const itemsForBook of byBook.values()) {
-      const ordered = [...itemsForBook].sort((a, b) => a.lineIndex - b.lineIndex);
-      let items: SearchResultItem[] = [];
-      let startLine = 0;
-      let endLine = 0;
-      const flush = () => {
-        if (!items.length) return;
-        batches.push({ bookId: items[0].bookId, start: startLine, end: endLine, items });
-        items = [];
-        startLine = 0;
-        endLine = 0;
-      };
-
-      for (const result of ordered) {
-        const line = Math.max(1, Math.floor(Number(result.lineIndex) || 1));
-        if (items.length > 0 && line - startLine > 30) flush();
-        if (items.length === 0) startLine = line;
-        endLine = line;
-        items.push(result);
-      }
-      flush();
-    }
-
-    let cursor = 0;
-    const worker = async () => {
-      while (cursor < batches.length) {
-        const batch = batches[cursor++];
-        try {
-          const data = await api.content(batch.bookId, batch.start, batch.end);
-          const lines = new Map(data.lines.map((line) => [Number(line.lineIndex), line.content]));
-          const found: Record<string, string> = {};
-          for (const result of batch.items) {
-            const line = lines.get(Number(result.lineIndex));
-            if (line?.trim()) found[resultKey(result)] = line;
-          }
-          if (Object.keys(found).length) {
-            setFallbackSnippets((current) => ({ ...current, ...found }));
-          }
-        } catch {
-          // Keep the book title and reference visible if the content endpoint fails.
-        }
-      }
-    };
-
-    void Promise.all(Array.from({ length: Math.min(4, batches.length) }, () => worker())).finally(() => {
-      setFallbackPending((current) => {
-        const next = new Set(current);
-        keys.forEach((key) => next.delete(key));
-        return next;
-      });
-    });
-    // fallbackSnippetRequests is intentionally not a dependency: each result key is requested once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results]);
   useEffect(() => {
     if (!selectedResult) {
       setPreview(null);
@@ -605,7 +527,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
                   {group.items.map((r) => {
                     const k = resultKey(r);
                     const sel = k === previewKey;
-                    const displaySnippet = hasVisibleSnippet(r.snippet) ? String(r.snippet) : (fallbackSnippets[k] || '');
+                    const displaySnippet = hasVisibleSnippet(r.snippet) ? String(r.snippet) : '';
                     return (
                       <button
                         key={k}
@@ -636,7 +558,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
                             dangerouslySetInnerHTML={{ __html: highlight(processHtml(displaySnippet, textOpts), lastQ) }}
                           />
                         ) : (
-                          <div dir="rtl" className="mt-1 text-sm text-on-variant" role="status">{fallbackPending.has(k) ? 'טוען את שורת התוצאה…' : 'טקסט השורה אינו זמין כרגע'}</div>
+                          <div dir="rtl" className="mt-1 text-sm text-on-variant" role="status">לחצו על התוצאה כדי לטעון את התצוגה המקדימה</div>
                         )}
                       </button>
                     );

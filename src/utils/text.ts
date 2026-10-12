@@ -158,6 +158,7 @@ export function snippetAround(text: string, query: string, n = 8): string {
 
 export interface DeepLink {
   book: string;
+  title?: string;
   line: number;
   from?: number;
   to?: number;
@@ -174,6 +175,7 @@ export function buildDeepLink(d: DeepLink): string {
   url.search = '';
   const p = new URLSearchParams();
   p.set('book', d.book);
+  if (d.title) p.set('title', d.title);
   p.set('line', String(d.line));
   if (d.from !== undefined && d.to !== undefined) p.set('w', `${d.from}-${d.to}`);
   url.hash = p.toString();
@@ -217,7 +219,7 @@ export function parseDeepLink(): DeepLink | null {
       to = Number.isFinite(b) ? b : a;
     }
   }
-  return { book, line, from, to, text: p.get('text') || undefined };
+  return { book, title: p.get('title') || undefined, line, from, to, text: p.get('text') || undefined };
 }
 
 // Gematria

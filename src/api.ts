@@ -126,7 +126,7 @@ export const api = {
       resultsCount: Number.isFinite(resultsCount) ? Math.max(results.length, resultsCount) : results.length,
       totalBooks: raw.totalBooks ?? raw.total_books,
       results,
-      scannedCount: arr.length,
+      scannedCount: Math.max(0, Number(raw.scannedCount ?? arr.length)),
     };
   },
   deleteHistoryItem: (id: string) =>

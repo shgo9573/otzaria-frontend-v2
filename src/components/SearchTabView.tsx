@@ -100,6 +100,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
   const [fallbackPending, setFallbackPending] = useState<Set<string>>(() => new Set());
   const fallbackSnippetRequests = useRef(new Set<string>());
   const inputRef = useRef<HTMLInputElement>(null);
+  const previewScrollRef = useRef<HTMLDivElement>(null);
 
   const topCats = useMemo(() => library?.root.children.map((c) => c.name) ?? [], [library]);
 
@@ -326,6 +327,23 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
       cancelled = true;
     };
   }, [selectedResult?.bookId, selectedResult?.lineIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Center the exact matched line inside the scrollable preview, rather than
+  // merely showing the surrounding excerpt from the content API.
+  useEffect(() => {
+    if (!preview || preview.error || !selectedResult || preview.lines.length === 0) return;
+    const container = previewScrollRef.current;
+    if (!container) return;
+    const target = container.querySelector<HTMLElement>('[data-preview-target="true"]');
+    if (!target) return;
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const targetTop = container.scrollTop + targetRect.top - containerRect.top;
+    container.scrollTop = Math.max(
+      0,
+      targetTop - Math.max(0, (container.clientHeight - target.offsetHeight) / 2),
+    );
+  }, [preview, selectedResult?.bookId, selectedResult?.lineIndex]);
 
   const textOpts = useMemo(
     () => ({ nikud: settings.showNikud, teamim: settings.showTeamim, punctuation: settings.showPunctuation, holyName: settings.holyNameReplacement }),
@@ -659,7 +677,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
                 <BookOpen size={16} /> פתח בלשונית חדשה
               </Btn>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div ref={previewScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4">
               {previewLoading && <Spinner label="טוען תצוגה מקדימה..." />}
               {preview?.error && <div className="text-sm text-error">{preview.error}</div>}
               {preview && !preview.error && preview.lines.length > 0 && (
@@ -667,7 +685,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
                   {preview.lines.map((line) => {
                     const isTarget = line.lineIndex === selectedResult.lineIndex;
                     return (
-                      <div key={line.lineIndex} id={isTarget ? 'preview-target' : undefined} className={`mb-1 rounded px-2 py-1 ${isTarget ? 'bg-primary/15' : ''}`}>
+                      <div key={line.lineIndex} data-preview-target={isTarget ? 'true' : undefined} className={`mb-1 rounded px-2 py-1 ${isTarget ? 'bg-primary/15' : ''}`}>
                         {line.heRef && (
                           <div className="mb-0.5 text-[11px] text-on-variant" style={{ fontFamily: 'Heebo, sans-serif' }}>
                             {line.heRef}

@@ -87,6 +87,8 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ lines: ContentLine[]; error: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [fallbackSnippets, setFallbackSnippets] = useState<Record<string, string>>({});
+  const fallbackSnippetRequests = useRef(new Set<string>());
   const inputRef = useRef<HTMLInputElement>(null);
 
   const topCats = useMemo(() => library?.root.children.map((c) => c.name) ?? [], [library]);
@@ -98,17 +100,16 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
 
   const sorted = useMemo(() => {
     if (!results) return null;
-    if (opts.sortBy === 'relevance') return results;
+    // Relevance and generation ordering must come from the search engine.
+    // Client-side generation sorting would only reorder the loaded page and break pagination.
+    if (opts.sortBy === 'relevance' || opts.sortBy === 'generation') return results;
     const catalogueIndex = new Map(library?.books.map((b, i) => [String(b.id), i]) ?? []);
     return results
       .map((result, index) => ({ result, index }))
       .sort((a, b) => {
         const ai = catalogueIndex.get(String(a.result.bookId)) ?? Number.MAX_SAFE_INTEGER;
         const bi = catalogueIndex.get(String(b.result.bookId)) ?? Number.MAX_SAFE_INTEGER;
-        if (opts.sortBy === 'catalogue') return ai - bi || a.result.lineIndex - b.result.lineIndex || a.index - b.index;
-        const ae = generationRank(library?.byId.get(String(a.result.bookId))?.heEra);
-        const be = generationRank(library?.byId.get(String(b.result.bookId))?.heEra);
-        return ae - be || ai - bi || a.result.lineIndex - b.result.lineIndex || a.index - b.index;
+        return ai - bi || a.result.lineIndex - b.result.lineIndex || a.index - b.index;
       })
       .map((x) => x.result);
   }, [results, opts.sortBy, library]);
@@ -234,6 +235,36 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.query]);
 
+  useEffect(() => {
+    const missing = (results ?? []).filter((result) => {
+      const key = resultKey(result);
+      return !result.snippet?.trim() && !fallbackSnippets[key] && !fallbackSnippetRequests.current.has(key);
+    });
+    if (missing.length === 0) return;
+    missing.forEach((result) => fallbackSnippetRequests.current.add(resultKey(result)));
+
+    // Fetch only missing snippets, with at most four requests in flight.
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < missing.length) {
+        const result = missing[cursor++];
+        try {
+          const data = await api.content(result.bookId, Math.max(1, result.lineIndex), Math.max(1, result.lineIndex));
+          const line = data.lines?.find((item) => item.lineIndex === result.lineIndex) ?? data.lines?.[0];
+          const text = line?.content?.trim();
+          if (text) {
+            const key = resultKey(result);
+            setFallbackSnippets((current) => current[key] ? current : { ...current, [key]: text });
+          }
+        } catch {
+          // Keep the result title/reference visible if the line endpoint is unavailable.
+        }
+      }
+    };
+    void Promise.all(Array.from({ length: Math.min(4, missing.length) }, () => worker()));
+    // fallbackSnippets is intentionally not a dependency: each result key is requested once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results]);
   useEffect(() => {
     if (!selectedResult) {
       setPreview(null);
@@ -468,7 +499,11 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
                   ).map(([v, label]) => (
                     <button
                       key={v}
-                      onClick={() => setOpts((o) => ({ ...o, sortBy: v }))}
+                      onClick={() => {
+                        const nextOpts = { ...opts, sortBy: v };
+                        setOpts(nextOpts);
+                        if (lastQ.trim()) void run(lastQ, nextOpts);
+                      }}
                       className={`rounded-full border px-3 py-1 text-xs transition ${
                         opts.sortBy === v ? 'border-transparent bg-sec-container text-on-sec-container' : 'border-outline-variant text-on-variant hover:bg-surface-3'
                       }`}
@@ -495,7 +530,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
                       {t(label, lang)}
                     </button>
                   ))}
-                  <span className="text-[11px] text-on-variant">{lang === 'en' ? 'Sort applies to loaded results' : 'המיון מוחל על התוצאות שכבר נטענו'}</span>
+                  <span className="text-[11px] text-on-variant">{lang === 'en' ? 'Sorting is handled by the search engine across pages' : 'המיון מתבצע במנוע החיפוש ונשמר בין עמודים'}</span>
                 </div>
               )}
               {grouped?.map((group) => (
@@ -508,6 +543,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
                   {group.items.map((r) => {
                     const k = resultKey(r);
                     const sel = k === previewKey;
+                    const displaySnippet = r.snippet?.trim() || fallbackSnippets[k] || '';
                     return (
                       <button
                         key={k}
@@ -518,6 +554,7 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
                         <div className="flex items-baseline gap-2">
                           <span className="font-bold text-primary">{r.bookTitle}</span>
                           {r.reference && <span className="text-sm text-on-variant">{r.reference}</span>}
+                          <span className="shrink-0 text-xs text-on-variant">שורה {r.lineIndex}</span>
                           {opts.sortBy === 'generation' &&
                             (() => {
                               const era = library?.byId.get(String(r.bookId))?.heEra;
@@ -529,12 +566,16 @@ export default function SearchTabView({ tab }: { tab: SearchTab }) {
                             })()}
                         </div>
                         {r.categoryPath && <div className="mb-1 text-xs text-on-variant">{r.categoryPath}</div>}
-                        <div
-                          dir="rtl"
-                          className="book-text line-clamp-4 text-[17px] leading-relaxed"
-                          style={{ fontFamily: fontStack(settings.fontFamily) }}
-                          dangerouslySetInnerHTML={{ __html: highlight(processHtml(r.snippet, textOpts), lastQ) }}
-                        />
+                        {displaySnippet ? (
+                          <div
+                            dir="rtl"
+                            className="book-text mt-1 line-clamp-4 text-[17px] leading-relaxed"
+                            style={{ fontFamily: fontStack(settings.fontFamily) }}
+                            dangerouslySetInnerHTML={{ __html: highlight(processHtml(displaySnippet, textOpts), lastQ) }}
+                          />
+                        ) : (
+                          <div dir="rtl" className="mt-1 text-sm text-on-variant">טקסט השורה אינו זמין כרגע</div>
+                        )}
                       </button>
                     );
                   })}

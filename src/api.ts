@@ -100,7 +100,8 @@ export const api = {
       bookTitle: r.bookTitle ?? r.book_title ?? r.title ?? '',
       categoryPath: r.categoryPath ?? r.category_path ?? r.category ?? '',
       lineIndex: Number(r.lineIndex ?? r.line_index ?? r.line ?? 1),
-      snippet: r.snippet ?? r.text ?? r.content ?? '',
+      snippet: [r.snippet, r.text, r.content, r.lineText, r.line_text, r.textStored, r.text_stored, r.textVocalizedStored, r.text_vocalized_stored]
+        .find((value) => typeof value === 'string' && value.trim().length > 0) ?? '',
       reference: r.reference ?? r.heRef ?? r.he_ref ?? '',
     }));
     const resultsCount = Number(raw.resultsCount ?? raw.total_hits ?? raw.totalHits ?? raw.total ?? results.length);

@@ -27,6 +27,8 @@ export interface CategoryNode {
 export interface CatalogData {
   categories: CategoryNode[];
   books: BookItem[];
+  /** IDs hidden by the backend because they are mapped to restricted sources. */
+  excludedBookIds?: Array<string | number>;
 }
 
 export interface ContentLine {

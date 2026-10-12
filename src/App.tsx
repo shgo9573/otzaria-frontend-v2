@@ -56,6 +56,14 @@ function Shell() {
           {toastMsg}
         </div>
       )}
+      <div
+        className="pointer-events-none fixed bottom-16 right-3 z-[55] max-w-[calc(100vw-1.5rem)] rounded-lg border border-black/10 bg-white/95 px-3 py-1.5 text-[11px] leading-4 text-gray-700 shadow-md backdrop-blur md:bottom-3 dark:border-white/15 dark:bg-gray-900/95 dark:text-gray-200"
+        role="status"
+        aria-label="הודעת מצב האתר"
+        dir="rtl"
+      >
+        האתר בפיתוח, ייתכנו שיבושים
+      </div>
     </div>
   );
 }

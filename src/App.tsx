@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AppProvider, useApp } from './store';
 import NavRail from './components/NavRail';
 import LibraryBrowser from './components/LibraryBrowser';
@@ -9,9 +9,17 @@ import FindScreen from './components/FindScreen';
 import AdminStats from './components/AdminStats';
 import { AboutDialog } from './components/Dialogs';
 import DailyNotifications from './components/DailyNotifications';
+import { Feedback } from './components/MoreScreen';
 
 function Shell() {
   const { screen, dialog, toastMsg, setScreen } = useApp();
+  const [showDevNotice, setShowDevNotice] = useState(true);
+  const [showFeedback, setShowFeedback] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowDevNotice(false), 20_000);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // typing /admin in the address bar (back/forward included) opens the hidden admin screen
   useEffect(() => {
@@ -56,14 +64,36 @@ function Shell() {
           {toastMsg}
         </div>
       )}
-      <div
-        className="pointer-events-none fixed bottom-16 right-3 z-[55] max-w-[calc(100vw-1.5rem)] rounded-lg border border-black/10 bg-white/95 px-3 py-1.5 text-[11px] leading-4 text-gray-700 shadow-md backdrop-blur md:bottom-3 dark:border-white/15 dark:bg-gray-900/95 dark:text-gray-200"
-        role="status"
-        aria-label="הודעת מצב האתר"
+      {showDevNotice && (
+        <div
+          className="pointer-events-none fixed bottom-16 right-3 z-[55] max-w-[calc(100vw-1.5rem)] rounded-lg border border-black/10 bg-white/95 px-3 py-1.5 text-[11px] leading-4 text-gray-700 shadow-md backdrop-blur md:bottom-3 dark:border-white/15 dark:bg-gray-900/95 dark:text-gray-200"
+          role="status"
+          aria-label="הודעת מצב האתר"
+          dir="rtl"
+        >
+          האתר בפיתוח, ייתכנו שיבושים
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setShowFeedback(true)}
+        className="fixed bottom-3 left-3 z-[65] inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+        aria-label="שליחת משוב"
         dir="rtl"
       >
-        האתר בפיתוח, ייתכנו שיבושים
-      </div>
+        משוב
+      </button>
+      {showFeedback && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-3" role="dialog" aria-modal="true" aria-label="שליחת משוב" dir="rtl">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-surface p-4 shadow-2xl md:p-6">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">שליחת משוב</h2>
+              <button type="button" onClick={() => setShowFeedback(false)} className="rounded-full px-3 py-2 text-sm hover:bg-surface-2" aria-label="סגירה">סגירה ✕</button>
+            </div>
+            <Feedback />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

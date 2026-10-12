@@ -8,6 +8,7 @@ import BookSidebar from './BookSidebar';
 import CommentaryPanel, { fontStack } from './CommentaryPanel';
 import { EmptyState, IconBtn, Spinner } from './ui';
 import { dafYomiPortalUrl, masechtaForName, parseDafRef } from '../utils/talmud';
+import { EXCLUDED_BOOK_NOTICE, isExcludedBook } from '../utils/bookFilter';
 
 const CHUNK = 200;
 const PRELOAD_MARGIN = '2400px 0px';
@@ -72,7 +73,7 @@ interface SelMenu {
 }
 
 export default function BookViewer({ tab }: { tab: BookTab }) {
-  const { settings, updateSettings, updateTab, addBookmark, saveHistory, library, toast } = useApp();
+  const { settings, updateSettings, updateTab, addBookmark, saveHistory, library, libraryLoading, toast } = useApp();
   const [lines, setLines] = useState<ContentLine[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -127,23 +128,32 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
     setCommentOpen(own?.commentaryOpen ?? settings.commentaryOpenByDefault ?? settings.commentaryViewMode !== 'inline');
   }, [tab.bookId, settings.perBookSettingsEnabled, settings.perBookLayoutSettings, settings.commentaryPanelWidth, settings.navigationPanelWidth, settings.commentaryOpenByDefault, settings.commentaryViewMode]);
 
+  const book = library?.byId.get(String(tab.bookId));
+  const blocked = isExcludedBook(book || { id: tab.bookId, title: tab.title, categoryPath: tab.category || '' });
+  // Unknown IDs from direct links must wait for the catalogue to resolve source metadata.
+  const waitingForCatalogue = libraryLoading && !book && !blocked;
+
   const [toc, setToc] = useState<TocEntry[] | null>(null);
   const [tocError, setTocError] = useState('');
   useEffect(() => {
-    let c = false;
+    let cancelled = false;
     setToc(null);
     setTocError('');
+    if (blocked) {
+      setTocError(EXCLUDED_BOOK_NOTICE);
+      return () => { cancelled = true; };
+    }
+    if (waitingForCatalogue) return () => { cancelled = true; };
     api
       .toc(tab.bookId)
-      .then((t) => !c && setToc(t))
-      .catch((e) => !c && setTocError(e.message));
+      .then((t) => !cancelled && setToc(t))
+      .catch((e) => !cancelled && setTocError(e.message));
     return () => {
-      c = true;
+      cancelled = true;
     };
-  }, [tab.bookId]);
+  }, [tab.bookId, book, blocked, waitingForCatalogue]);
   const headIdx = useMemo(() => new Set((toc || []).map((t) => t.index)), [toc]);
 
-  const book = library?.byId.get(String(tab.bookId));
   const title = book?.title || tab.title;
   const category = book?.categoryPath || tab.category || '';
   const isTanakh = category.startsWith('תנ"ך') || category.startsWith("תנ'ך");
@@ -177,6 +187,17 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
     reachedEndRef.current = false;
     topReachedRef.current = false;
     setEndReached(false);
+    if (blocked) {
+      setLines([]);
+      setTotal(0);
+      setError(EXCLUDED_BOOK_NOTICE);
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
+    if (waitingForCatalogue) {
+      setLoading(true);
+      return () => { cancelled = true; };
+    }
     const start = Math.max(1, target - 60);
     api
       .content(tab.bookId, start, target + CHUNK)
@@ -200,7 +221,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab.bookId, jumpN]);
+  }, [tab.bookId, jumpN, library, libraryLoading, blocked, waitingForCatalogue]);
 
   useLayoutEffect(() => {
     const sc = scRef.current;
@@ -699,7 +720,7 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
               className="absolute inset-y-0 right-0 z-20 w-[min(320px,88vw)] shadow-xl md:static md:z-auto md:w-[var(--sw)] md:shrink-0 md:shadow-none"
               style={{ ['--sw' as string]: `${sidebarWidth}%` }}
             >
-              <BookSidebar
+              {!blocked && !waitingForCatalogue && <BookSidebar
                 bookId={tab.bookId}
                 bookTitle={title}
                 tab={sidebarTab}
@@ -710,13 +731,13 @@ export default function BookViewer({ tab }: { tab: BookTab }) {
                 searchSeed={searchSeed}
                 toc={toc}
                 tocError={tocError}
-              />
+              />}
             </div>
             <div onMouseDown={startSidebarDrag} className="hidden w-1.5 shrink-0 cursor-col-resize bg-outline-variant/60 transition-colors hover:bg-primary md:block" title="גרור לשינוי רוחב הניווט" />
           </>
         )}
 
-        {commentOpen && (
+        {commentOpen && !blocked && !waitingForCatalogue && (
           <>
             <div
               className="absolute inset-x-0 bottom-0 z-10 h-[50%] border-t border-outline-variant shadow-[0_-4px_16px_rgba(0,0,0,0.15)] md:static md:z-auto md:h-auto md:w-[var(--cw)] md:shrink-0 md:border-t-0 md:shadow-none"

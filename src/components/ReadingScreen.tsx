@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BookOpen, Search as SearchIcon, X } from 'lucide-react';
 import { useApp } from '../store';
 import BookViewer from './BookViewer';
@@ -8,6 +8,7 @@ import { t } from '../i18n';
 
 export default function ReadingScreen() {
   const { tabs, activeTabId, setActiveTab, closeTab, closeAllTabs, setScreen, openSearch, settings } = useApp();
+  const [confirmCloseAll, setConfirmCloseAll] = useState(false);
   const lang = settings.interfaceLanguage;
   const active = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const stripRef = useRef<HTMLDivElement>(null);
@@ -36,18 +37,6 @@ export default function ReadingScreen() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-end bg-surface-1">
-        <button
-          type="button"
-          onClick={() => {
-            if (confirm(`לסגור את כל ${tabs.length} הלשוניות הפתוחות? לא ניתן לשחזר את הלשוניות לאחר הסגירה.`)) closeAllTabs();
-          }}
-          className="flex h-9 shrink-0 items-center gap-1.5 border-l border-outline-variant px-3 text-xs text-on-variant transition hover:bg-surface-3"
-          title={lang === 'en' ? 'Close all tabs' : 'סגור את כל הלשוניות'}
-          aria-label={lang === 'en' ? 'Close all tabs' : 'סגור את כל הלשוניות'}
-        >
-          <X size={15} />
-          <span className="whitespace-nowrap">{lang === 'en' ? 'Close all' : 'סגור הכול'}</span>
-        </button>
         <div ref={stripRef} className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-1 pt-1.5" style={{ scrollbarWidth: 'thin' }}>
           {tabs.map((t) => {
             const isActive = active?.id === t.id;
@@ -76,6 +65,16 @@ export default function ReadingScreen() {
             );
           })}
         </div>
+        <button
+          type="button"
+          onClick={() => setConfirmCloseAll(true)}
+          className="group mb-1 ml-2 mr-1 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-error/30 bg-error/5 px-3 text-xs font-semibold text-error shadow-sm transition duration-150 hover:border-error/50 hover:bg-error/10 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error/40"
+          title={lang === 'en' ? 'Close all tabs' : 'סגור את כל הלשוניות'}
+          aria-label={lang === 'en' ? 'Close all tabs' : 'סגור את כל הלשוניות'}
+        >
+          <X size={14} strokeWidth={2.5} />
+          <span className="whitespace-nowrap">{lang === 'en' ? 'Close all' : 'סגור הכול'}</span>
+        </button>
       </div>
       <div className="min-h-0 flex-1">
         {tabs.map((tab) => (
@@ -84,6 +83,62 @@ export default function ReadingScreen() {
           </div>
         ))}
       </div>
+      {confirmCloseAll && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setConfirmCloseAll(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="close-all-tabs-title"
+            className="fade-in w-full max-w-sm overflow-hidden rounded-2xl border border-outline-variant bg-surface text-on-surface shadow-2xl"
+          >
+            <div className="flex items-start gap-3 border-b border-outline-variant bg-error/5 px-5 py-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-error/10 text-error">
+                <X size={20} strokeWidth={2.5} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 id="close-all-tabs-title" className="text-base font-bold">
+                  {lang === 'en' ? 'Close all tabs?' : 'לסגור את כל הלשוניות?'}
+                </h2>
+                <p className="mt-1 text-sm leading-5 text-on-variant">
+                  {lang === 'en'
+                    ? 'This will close every open book and search tab.'
+                    : 'פעולה זו תסגור את כל הספרים והחיפושים הפתוחים.'}
+                </p>
+              </div>
+            </div>
+            <div className="px-5 py-4 text-sm leading-6 text-on-variant">
+              {lang === 'en'
+                ? `There are ${tabs.length} open tabs. This cannot be undone.`
+                : `פתוחות כרגע ${tabs.length} לשוניות. אי אפשר לבטל את הסגירה לאחר האישור.`}
+            </div>
+            <div className="flex justify-end gap-2 px-5 pb-5">
+              <button
+                type="button"
+                onClick={() => setConfirmCloseAll(false)}
+                className="rounded-xl border border-outline-variant px-4 py-2 text-sm font-medium text-on-surface transition hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                {lang === 'en' ? 'Cancel' : 'ביטול'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmCloseAll(false);
+                  closeAllTabs();
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-error px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error/50"
+              >
+                <X size={15} />
+                {lang === 'en' ? 'Close all tabs' : 'סגור את כולן'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
